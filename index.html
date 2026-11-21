@@ -95,7 +95,7 @@ function home(){const h=new Date().getHours(),g=h<12?'Bom dia':h<18?'Boa tarde':
 app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div><div id=sug></div>
 ${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo de produtos</a><a onclick="go('config')">⚙️ Aparência e configurações</a></div>`:''}
 ${S.comandas.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje. Toque em Nova comanda para começar.</p>'}
-<button class=btn onclick="novo()">+ Nova comanda</button><div class=ov id=ovi></div></div>`;atualizaSug()}
+<button class=btn onclick="novo()">+ Nova comanda</button><div class=ov id=ovi></div></div>`;atualizaSug().catch(e=>{const b=$('#sug');if(b)b.innerHTML='<div class=card><span class=mut>Erro na sugestão: '+esc(e.message)+'</span></div>'})}
 
 /* ---------- DETALHE ---------- */
 function detail(){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===S.id);if(!c)return go('home');
@@ -134,7 +134,7 @@ function cform(){const f=S.f;
 const sec=(cat,titulo,id)=>{const l=f.itens.map((i,k)=>[i,k]).filter(([i])=>i.cat===cat);if(!l.length)return '';
 return `<div class=card><div class=sec onclick="togSec('${id}')"><b id=h_${id}>▸ ${titulo}</b><span class=mut id=n_${id}></span></div><div id=b_${id} style="display:none;margin-top:8px">${l.map(([i,k])=>itemRow(i,k)).join('<hr>')}${cat==='Galão'?`<hr><button class="btn s" id=fbtn onclick="abreFrete()">🚚 Adicionar frete</button>`:''}</div></div>`};
 app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(${f.id?`'detail','${f.id}'`:"'home'"})">←</button><h1>${f.id?'Editar':'Nova'} comanda</h1><span></span></div>
-<label>Cliente cadastrado</label><select id=fc onchange=pick()><option value="">— digitar manualmente —</option>${S.clientes.map(c=>`<option value="${c.id}" ${c.id===f.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select>
+<label>Buscar cliente cadastrado</label><input id=fcs placeholder="🔍 Digite o nome do cliente" oninput="filtraCliSel()"><label>Cliente cadastrado</label><select id=fc onchange=pick()><option value="">— digitar manualmente —</option>${S.clientes.map(c=>`<option value="${c.id}" ${c.id===f.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select>
 <label>Nome</label><input id=fn value="${esc(f.nome)}"><label>Telefone</label><input id=ft type=tel value="${esc(f.tel)}"><label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div><label>Endereço</label><textarea id=fe rows=2>${esc(f.end)}</textarea><label>Observação do cliente</label><input id=fo value="${esc(f.oc)}">
 ${sec('Galão','Galões','gal')}${sec('Outros','Outros','out')}${f.itens.length?'':'<p class=mut>Cadastre produtos no catálogo primeiro.</p>'}
 <div class=card><div class=row><b>Total</b><b id=tt></b></div></div>
@@ -144,6 +144,8 @@ ${f.id?'':`<label>Prazo de entrega (em minutos)</label><input id=fp type=number 
 <div class=ov id=ovf><div class=box><b>Frete por galão</b><p class=mut style="margin:6px 0 10px">Digite o valor de um galão. Ele será cobrado por cada galão da comanda.</p><input id=fv type=number step=0.01 inputmode=decimal placeholder="Ex.: 5,00"><div class=row style="margin-top:6px"><button class="btn s" onclick="fechaFrete()">Cancelar</button><button class=btn onclick="confirmaFrete()">Confirmar</button></div>${f.frete>0?'<button class="btn d" onclick="removeFrete()">Remover frete</button>':''}</div></div>`;
 pg();tot()}
 function togSec(id){const b=$('#b_'+id),abre=b.style.display==='none';b.style.display=abre?'block':'none';const h=$('#h_'+id);h.textContent=(abre?'▾ ':'▸ ')+h.textContent.slice(2)}
+function filtraCliSel(){const q=($('#fcs').value||'').toLowerCase(),s=$('#fc'),cur=s.value;
+s.innerHTML='<option value="">— digitar manualmente —</option>'+S.clientes.filter(c=>(c.nome||'').toLowerCase().includes(q)).map(c=>`<option value="${c.id}" ${c.id===cur?'selected':''}>${esc(c.nome)}</option>`).join('')}
 function pick(){const c=S.clientes.find(x=>x.id===$('#fc').value);if(!c)return;$('#fn').value=c.nome;$('#ft').value=c.telefone||'';$('#fe').value=addr(c);$('#fo').value=c.observacao||''}
 function st(k,d){const i=S.f.itens[k];i.qtd=Math.max(0,i.qtd+d);$('#q'+k).textContent=i.qtd;tot()}
 function abreFrete(){$('#fv').value=S.f.frete>0?S.f.frete:'';$('#ovf').style.display='flex'}
@@ -179,7 +181,7 @@ if(j[0]){c.lat=+j[0].lat;c.lng=+j[0].lon;await sb.from('comandas').update({lat:c
 await new Promise(r=>setTimeout(r,1100))}
 async function atualizaSug(){const box=$('#sug');if(!box)return;
 const pend=S.comandas.filter(c=>c.status==='Pendente');
-if(!pend.length){box.innerHTML='';return}
+if(!pend.length){box.innerHTML='<div class=card><span class=mut>Nenhuma entrega pendente hoje.</span></div>';return}
 const pos=await pegaPos();if(!$('#sug'))return;
 if(!pos){box.innerHTML='<div class=card><span class=mut>Ative a localização do celular para ver a entrega mais próxima.</span></div>';return}
 box.innerHTML='<div class=card><span class=mut>Procurando a entrega mais próxima…</span></div>';
@@ -189,9 +191,12 @@ const ign=S.ign||new Set();const com=pend.filter(c=>c.lat!=null&&!ign.has(c.id))
 if(!com.length){box.innerHTML=pend.every(c=>ign.has(c.id))?'':'<div class=card><span class=mut>Não encontrei o endereço das entregas pendentes. Confira os endereços.</span></div>';return}
 const {c,d}=com[0];
 box.innerHTML=`<div class=card><div class=mut>Entrega mais próxima</div><div class=row><b>${esc(c.cliente_nome)}</b><span>${d.toFixed(1).replace('.',',')} km</span></div><div class=mut>${esc(c.endereco||'')}</div><div class=row><button class="btn s" onclick="naoIr('${c.id}')">Não ir</button><button class=btn onclick="iniciar('${c.id}')">Ir</button></div></div>`}
-async function iniciar(id){const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
-await load();const c=S.comandas.find(x=>x.id===id);const ov=$('#ovi');if(!ov)return;
-ov.innerHTML=`<div class=box><b>Entrega iniciada</b><p class=mut style="margin:6px 0 10px">${esc(c?c.cliente_nome:'')}${c&&c.endereco?' · '+esc(c.endereco):''}</p><div class=row><button class="btn s" onclick="fechaIni()">Fechar</button><button class=btn onclick="fechaIni();go('detail','${id}')">Ir</button></div></div>`;ov.style.display='flex'}
+async function iniciar(id){const c=S.comandas.find(x=>x.id===id);
+const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
+if(c)c.status='Em entrega';
+await load();
+const dest=(c&&c.lat!=null)?(c.lat+','+c.lng):encodeURIComponent((c&&c.endereco)||'');
+location.href='intent://navigate?q='+dest+'#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end'}
 function fechaIni(){const ov=$('#ovi');if(ov)ov.style.display='none'}
 
 function naoIr(id){(S.ign=S.ign||new Set()).add(id);atualizaSug()}
