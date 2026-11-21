@@ -52,7 +52,7 @@ const fdt=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit'
 const mins=(a,b)=>Math.round((new Date(b)-new Date(a))/60000);
 const SC={'Pendente':'p','Em entrega':'e','Entregue':'g'};
 const ICO={Dinheiro:'💵',Pix:'💠',Débito:'💳',Crédito:'💳'};
-const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false};
+const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false,nf:new Set()};
 const FORMS=['cform','cliform','prodform','historico'];
 function tema(){const t=localStorage.getItem('tema')||'auto';document.documentElement.dataset.t=(t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light'}
 tema();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',tema);
@@ -92,10 +92,10 @@ async function entrar(){const {error}=await sb.auth.signInWithPassword({email:$(
 
 /* ---------- INÍCIO ---------- */
 function home(){const h=new Date().getHours(),g=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
-app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div>
+app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div><div id=sug></div>
 ${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo de produtos</a><a onclick="go('config')">⚙️ Aparência e configurações</a></div>`:''}
 ${S.comandas.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje. Toque em Nova comanda para começar.</p>'}
-<button class=btn onclick="novo()">+ Nova comanda</button></div>`}
+<button class=btn onclick="novo()">+ Nova comanda</button><div class=ov id=ovi></div></div>`;atualizaSug()}
 
 /* ---------- DETALHE ---------- */
 function detail(){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===S.id);if(!c)return go('home');
@@ -112,7 +112,7 @@ ${c.frete_por_galao>0?`<hr><div class=row><span class=mut>Frete: ${money(c.frete
 ${c.observacao?`<div class="card obs"><b>📝 Observação da comanda</b><div style="margin-top:4px">${esc(c.observacao)}</div></div>`:''}
 <div class=row>${['Pendente','Em entrega','Entregue'].map(s=>`<button class="btn ${c.status===s?'':'s'}" onclick="setSt('${c.id}','${s}')">${s}</button>`).join('')}</div>
 <button class="btn s" onclick="editar('${c.id}')">✏️ Editar comanda</button><button class="btn d" onclick="delC('${c.id}')">Excluir comanda</button></div>`}
-async function setSt(id,s){const {error}=await sb.from('comandas').update({status:s,entregue_em:s==='Entregue'?new Date().toISOString():null}).eq('id',id);if(error)return alert(error.message);load()}
+async function setSt(id,s){const {error}=await sb.from('comandas').update({status:s,entregue_em:s==='Entregue'?new Date().toISOString():null}).eq('id',id);if(error)return alert(error.message);await load();if(s==='Entregue')go('home')}
 async function delC(id){if(!confirm('Excluir esta comanda?'))return;const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);go('home')}
 
 /* ---------- NOVA / EDITAR COMANDA ---------- */
@@ -156,7 +156,7 @@ async function salvar(){const f=S.f,nome=$('#fn').value.trim(),its=f.itens.filte
 if(!nome)return alert('Informe o nome do cliente.');if(!its.length)return alert('Adicione pelo menos um produto.');
 if(!f.id&&!(parseInt($('#fp').value)>0))return alert('Informe o prazo de entrega em minutos.');
 const total=tot(),m=$('#fm').value,rf=$('#fr'),rec=m==='Dinheiro'&&rf&&rf.value!==''?+rf.value:null;
-const row={cliente_id:$('#fc').value||null,cliente_nome:nome,telefone:$('#ft').value,endereco:$('#fe').value,observacao_cliente:$('#fo').value,observacao:$('#fb').value,metodo_pagamento:m,valor_recebido:rec,troco:rec!=null&&rec>=total?+(rec-total).toFixed(2):null,precisa_maquininha:m==='Débito'||m==='Crédito',total,frete_por_galao:f.frete||0,qtd_galoes:f.galoes||0};
+const row={cliente_id:$('#fc').value||null,cliente_nome:nome,telefone:$('#ft').value,endereco:$('#fe').value,observacao_cliente:$('#fo').value,observacao:$('#fb').value,metodo_pagamento:m,valor_recebido:rec,troco:rec!=null&&rec>=total?+(rec-total).toFixed(2):null,precisa_maquininha:m==='Débito'||m==='Crédito',total,frete_por_galao:f.frete||0,qtd_galoes:f.galoes||0,lat:null,lng:null};
 let id=f.id,e;
 if(id){({error:e}=await sb.from('comandas').update(row).eq('id',id));if(!e)await sb.from('comanda_itens').delete().eq('comanda_id',id)}
 else{row.prazo_em=new Date(Date.now()+$('#fp').value*60000).toISOString();const r=await sb.from('comandas').insert(row).select('id').single();e=r.error;id=r.data?.id}
@@ -164,6 +164,30 @@ if(e)return alert('Erro: '+e.message);
 const {error:e2}=await sb.from('comanda_itens').insert(its.map(i=>({comanda_id:id,produto_id:i.produto_id,produto_nome:i.nome,quantidade:i.qtd,preco_unitario:i.preco})));
 if(e2)return alert('Erro: '+e2.message);
 await load();go('detail',id)}
+
+/* ---------- PRÓXIMA ENTREGA ---------- */
+function pegaPos(){return new Promise(res=>{if(!navigator.geolocation)return res(null);navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude}),()=>res(null),{enableHighAccuracy:false,timeout:8000,maximumAge:60000})})}
+function distKm(a,b){const R=6371,t=x=>x*Math.PI/180;const dLat=t(b.lat-a.lat),dLng=t(b.lng-a.lng);const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+async function geocodeC(c){if(S.nf.has(c.id))return;
+try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(c.endereco+', Brasil'),{headers:{'Accept-Language':'pt-BR'}});const j=await r.json();
+if(j[0]){c.lat=+j[0].lat;c.lng=+j[0].lon;await sb.from('comandas').update({lat:c.lat,lng:c.lng}).eq('id',c.id)}else S.nf.add(c.id)}catch(e){S.nf.add(c.id)}
+await new Promise(r=>setTimeout(r,1100))}
+async function atualizaSug(){const box=$('#sug');if(!box)return;
+const pend=S.comandas.filter(c=>c.status==='Pendente');
+if(!pend.length){box.innerHTML='';return}
+const pos=await pegaPos();if(!$('#sug'))return;
+if(!pos){box.innerHTML='<div class=card><span class=mut>Ative a localização do celular para ver a entrega mais próxima.</span></div>';return}
+box.innerHTML='<div class=card><span class=mut>Procurando a entrega mais próxima…</span></div>';
+for(const c of pend){if(c.lat==null&&c.endereco)await geocodeC(c)}
+if(!$('#sug'))return;
+const com=pend.filter(c=>c.lat!=null).map(c=>({c,d:distKm(pos,{lat:c.lat,lng:c.lng})})).sort((a,b)=>a.d-b.d);
+if(!com.length){box.innerHTML='<div class=card><span class=mut>Não encontrei o endereço das entregas pendentes. Confira os endereços.</span></div>';return}
+const {c,d}=com[0];
+box.innerHTML=`<div class=card><div class=mut>Entrega mais próxima</div><div class=row><b>${esc(c.cliente_nome)}</b><span>${d.toFixed(1).replace('.',',')} km</span></div><div class=mut>${esc(c.endereco||'')}</div><button class=btn onclick="iniciar('${c.id}')">Iniciar entrega</button></div>`}
+async function iniciar(id){const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
+await load();const c=S.comandas.find(x=>x.id===id);const ov=$('#ovi');if(!ov)return;
+ov.innerHTML=`<div class=box><b>Entrega iniciada</b><p class=mut style="margin:6px 0 10px">${esc(c?c.cliente_nome:'')}${c&&c.endereco?' · '+esc(c.endereco):''}</p><div class=row><button class="btn s" onclick="fechaIni()">Fechar</button><button class=btn onclick="fechaIni();go('detail','${id}')">Ir</button></div></div>`;ov.style.display='flex'}
+function fechaIni(){const ov=$('#ovi');if(ov)ov.style.display='none'}
 
 /* ---------- HISTÓRICO COM CALENDÁRIO ---------- */
 async function historico(){const c=S.cal||(S.cal={y:new Date().getFullYear(),m:new Date().getMonth()});
