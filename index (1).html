@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VitaFonte Comandas</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b6fb8">
+<link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#eef5fa;--card:#fff;--tx:#0f2233;--mut:#5c7288;--pri:#0b6fb8;--bd:#d6e3ed;--ok:#1a9d5c;--warn:#d98200;--bad:#d64545}
+[data-t=dark]{--bg:#0d1620;--card:#16222f;--tx:#e8f0f7;--mut:#8fa5b8;--bd:#25364a;--pri:#2f93e0}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--tx);padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.w{max-width:560px;margin:0 auto;padding:14px 14px 60px;position:relative}
+h1{font-size:22px;margin:0}
+a{color:var(--pri);text-decoration:none;font-weight:600}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mut{color:var(--mut);font-size:14px}
+.btn{flex:1;background:var(--pri);color:#fff;border:0;border-radius:12px;padding:13px 12px;font-weight:600;font-size:16px;width:100%;margin-top:8px;display:block;text-align:center;text-decoration:none;cursor:pointer}
+.row .btn{margin-top:0;font-size:14px;padding:11px 4px}
+.btn.s{background:var(--card);color:var(--tx);border:1px solid var(--bd)}
+.btn.d{background:var(--bad)}
+.ib{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 14px;font-size:20px;color:var(--tx);cursor:pointer}
+input,select,textarea{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font:inherit;margin:4px 0 10px}
+input[type=checkbox]{width:auto;margin-right:8px}
+label{font-size:13px;color:var(--mut)}
+hr{border:0;border-top:1px solid var(--bd);margin:10px 0}
+.tag{padding:3px 10px;border-radius:99px;font-size:13px;font-weight:600;color:#fff;white-space:nowrap}
+.p{background:var(--warn)}.e{background:var(--pri)}.g{background:var(--ok)}
+.menu{position:absolute;right:14px;top:56px;background:var(--card);border:1px solid var(--bd);border-radius:12px;z-index:5;box-shadow:0 6px 20px #0003;min-width:230px}
+.menu a{display:block;padding:14px 18px;border-bottom:1px solid var(--bd);color:var(--tx);cursor:pointer}.menu a:last-child{border:0}
+.q{display:flex;align-items:center;gap:12px}
+.q button{width:38px;height:38px;border-radius:10px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:20px}
+.obs{background:#fff4cc;border-color:#e8b923;color:#3d2e00}
+[data-t=dark] .obs{background:#3a3110;border-color:#a8871c;color:#fbe9a6}
+.grade{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cab{text-align:center;color:var(--mut);font-size:13px;padding:4px 0}
+.cab2{font-weight:700;margin:14px 0 6px;color:var(--pri)}
+.dia{position:relative;text-align:center;padding:12px 0;border:1px solid var(--bd);border-radius:10px;background:var(--card);cursor:pointer}
+.bola{position:absolute;top:2px;right:3px;background:var(--pri);color:#fff;border-radius:99px;font-size:11px;padding:0 6px}
+</style></head><body><div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const sb=supabase.createClient('https://rqmpidfkuukncuvqgeyu.supabase.co','sb_publishable_azoA2qDBUQNBTShowTfjkg_WBjShstd');
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>Number(n||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fdt=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
+const mins=(a,b)=>Math.round((new Date(b)-new Date(a))/60000);
+const SC={'Pendente':'p','Em entrega':'e','Entregue':'g'};
+const ICO={Dinheiro:'💵',Pix:'💠',Débito:'💳',Crédito:'💳'};
+const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false};
+const FORMS=['cform','cliform','prodform','historico'];
+function tema(){const t=localStorage.getItem('tema')||'auto';document.documentElement.dataset.t=(t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light'}
+tema();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',tema);
+const addr=c=>[c.rua&&c.rua+(c.numero?', '+c.numero:''),c.bairro,c.predio&&'Prédio '+c.predio,c.bloco&&'Bloco '+c.bloco,c.apartamento&&'Apto '+c.apartamento,c.complemento,c.referencia&&'Ref.: '+c.referencia].filter(Boolean).join(' · ');
+function cnt(c){if(c.entregue_em)return 'Entregue em '+fmtMin(mins(c.criado_em,c.entregue_em));if(!c.prazo_em)return '';const m=Math.round((new Date(c.prazo_em)-Date.now())/60000);return m>=0?'Faltam '+fmtMin(m):'Atrasada '+fmtMin(m)}
+function tick(){document.querySelectorAll('[data-c]').forEach(e=>{const c=S.comandas.find(x=>x.id===e.dataset.c);if(c)e.textContent=cnt(c)})}
+function go(v,id,back,pop){
+  if(!pop&&v==='home'&&S.v!=='home'&&history.state&&history.state.vf){history.back();return}
+  const wasHome=S.v==='home';
+  S.v=v;S.id=id||null;S.back=back||null;S.menu=false;S.q='';scrollTo(0,0);
+  if(!pop&&wasHome&&v!=='home')history.pushState({vf:1},'');
+  render()}
+addEventListener('popstate',()=>{if(S.v!=='home'&&S.user)go('home',null,null,true)});
+function fmtMin(m){m=Math.abs(Math.round(m));if(m<60)return m+' min';const h=Math.floor(m/60),r=m%60;return h+(h>1?' horas':' hora')+(r?` e ${r} min`:'')}
+function prazoTxt(){const v=parseInt($('#fp').value);$('#ptx').textContent=v>0?'Prazo: '+fmtMin(v):''}
+function render(){if(!S.user)return login();({home,detail,cform,clientes,cliform,produtos,prodform,config,historico})[S.v]()}
+async function load(){
+  const t=new Date();t.setHours(0,0,0,0);
+  const [c,p,o]=await Promise.all([
+    sb.from('clientes').select('*').order('nome'),
+    sb.from('produtos').select('*').order('nome'),
+    sb.from('comandas').select('*,comanda_itens(*)').gte('criado_em',t.toISOString()).order('criado_em',{ascending:false})]);
+  if(c.data)S.clientes=c.data;if(p.data)S.produtos=p.data;if(o.data)S.comandas=o.data;
+  if(!FORMS.includes(S.v))render();
+}
+function start(){
+  load();if(S.started)return;S.started=true;
+  sb.channel('rt').on('postgres_changes',{event:'*',schema:'public'},()=>{clearTimeout(S.t);S.t=setTimeout(load,300)}).subscribe();
+  setInterval(tick,30000);
+}
+sb.auth.onAuthStateChange((e,s)=>{S.user=s?.user||null;if(!S.user){S.v='home';return render()}if(e==='INITIAL_SESSION'||e==='SIGNED_IN')setTimeout(start,0);render()});
+
+function login(){app.innerHTML=`<div class=w style="padding-top:12vh;text-align:center"><img src=icon-192.png width=96 style="border-radius:22px"><h1>VitaFonte Comandas</h1><p class=mut>Entre com o login da loja</p><input id=em type=email placeholder="E-mail" autocomplete=username><input id=pw type=password placeholder="Senha" autocomplete=current-password><button class=btn onclick="entrar()">Entrar</button><p id=er style="color:var(--bad)"></p></div>`}
+async function entrar(){const {error}=await sb.auth.signInWithPassword({email:$('#em').value.trim(),password:$('#pw').value});if(error)$('#er').textContent='E-mail ou senha incorretos.'}
+
+/* ---------- INÍCIO ---------- */
+function home(){const h=new Date().getHours(),g=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
+app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div>
+${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo de produtos</a><a onclick="go('config')">⚙️ Aparência e configurações</a></div>`:''}
+${S.comandas.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje. Toque em Nova comanda para começar.</p>'}
+<button class=btn onclick="novo()">+ Nova comanda</button></div>`}
+
+/* ---------- DETALHE ---------- */
+function detail(){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===S.id);if(!c)return go('home');
+const it=c.comanda_itens||[],din=c.metodo_pagamento==='Dinheiro';
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(S.back||'home')">←</button><h1>Comanda #${c.numero}</h1><span></span></div>
+<div class=card><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div>
+<div class=mut>Criada: ${fdt(c.criado_em)}</div><div class=mut>Prazo: ${fdt(c.prazo_em)} · <b data-c="${c.id}">${cnt(c)}</b></div>
+${c.entregue_em?`<div class=mut>Entregue: ${fdt(c.entregue_em)} (${mins(c.criado_em,c.entregue_em)} min)</div>`:''}</div>
+<div class=card>${it.map(i=>`<div class=row><span>${i.quantidade}× ${esc(i.produto_nome)}${i.troca?' <span class=mut>(com troca)</span>':''}<div class=mut>${money(i.preco_unitario)}${+i.frete>0?' + frete '+money(i.frete):''} cada</div></span><span>${money(i.quantidade*(+i.preco_unitario+ +(i.frete||0)))}</span></div>`).join('<hr>')}<hr><div class=row><b>Total</b><b>${money(c.total)}</b></div></div>
+<div class=card>${ICO[c.metodo_pagamento]||'💰'} ${esc(c.metodo_pagamento||'-')}${din&&c.valor_recebido!=null?`<div class=mut>Recebido ${money(c.valor_recebido)} · Troco ${money(c.troco)}</div>`:''}${c.precisa_maquininha?'<div class=mut>⚠️ Levar maquininha</div>':''}</div>
+<div class=card><div>📍 ${esc(c.endereco||'-')}</div>${c.endereco?`<div class=row style="margin:8px 0 2px"><a class=btn href="intent://?q=${encodeURIComponent(c.endereco)}&navigate=yes#Intent;scheme=waze;package=com.waze;end">🧭 Waze</a><a class="btn s" href="intent://navigate?q=${encodeURIComponent(c.endereco)}#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end">🧭 Google Maps</a></div>`:''}<div class=mut style="margin-top:8px">📞 ${c.telefone?`<a href="tel:${esc(c.telefone)}">${esc(c.telefone)}</a>`:'-'}</div>${c.observacao_cliente?`<div class=mut>Obs. do cliente: ${esc(c.observacao_cliente)}</div>`:''}</div>
+${c.observacao?`<div class="card obs"><b>📝 Observação da comanda</b><div style="margin-top:4px">${esc(c.observacao)}</div></div>`:''}
+<div class=row>${['Pendente','Em entrega','Entregue'].map(s=>`<button class="btn ${c.status===s?'':'s'}" onclick="setSt('${c.id}','${s}')">${s}</button>`).join('')}</div>
+<button class="btn s" onclick="editar('${c.id}')">✏️ Editar comanda</button><button class="btn d" onclick="delC('${c.id}')">Excluir comanda</button></div>`}
+async function setSt(id,s){const {error}=await sb.from('comandas').update({status:s,entregue_em:s==='Entregue'?new Date().toISOString():null}).eq('id',id);if(error)return alert(error.message);load()}
+async function delC(id){if(!confirm('Excluir esta comanda?'))return;const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);go('home')}
+
+/* ---------- NOVA / EDITAR COMANDA ---------- */
+const itemOf=p=>({produto_id:p.id,nome:p.nome,cat:p.categoria||'Outros',preco:+p.preco,preco_troca:p.preco_troca==null?null:+p.preco_troca,frete:+(p.frete||0),qtd:0,troca:false});
+const pu=i=>(i.troca&&i.preco_troca!=null)?i.preco_troca:i.preco;   // preço unitário aplicado
+const fr=i=>i.cat==='Galão'?i.frete:0;                              // frete por galão
+const linha=i=>i.qtd*(pu(i)+fr(i));
+function novo(){S.f={itens:S.produtos.filter(p=>p.ativo).map(itemOf),prazo:60,metodo:'Dinheiro'};go('cform')}
+function editar(id){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===id);const old=c.comanda_itens||[];
+const base=S.produtos.filter(p=>p.ativo).map(itemOf);
+// preços já gravados na comanda continuam congelados
+const itens=base.map(b=>{const o=old.find(i=>i.produto_id===b.produto_id);
+  return o?{...b,qtd:o.quantidade,troca:!!o.troca,frete:+(o.frete||0),...(o.troca?{preco_troca:+o.preco_unitario}:{preco:+o.preco_unitario})}:b});
+old.filter(o=>!base.some(b=>b.produto_id===o.produto_id)).forEach(o=>itens.push({produto_id:o.produto_id,nome:o.produto_nome,cat:'Outros',preco:+o.preco_unitario,preco_troca:null,frete:+(o.frete||0),qtd:o.quantidade,troca:false}));
+S.f={id,cliente_id:c.cliente_id,nome:c.cliente_nome,tel:c.telefone,end:c.endereco,oc:c.observacao_cliente,obs:c.observacao,metodo:c.metodo_pagamento||'Dinheiro',rec:c.valor_recebido,itens};go('cform')}
+function itemRow(i,k){const galao=i.cat==='Galão';const temTroca=galao&&i.preco_troca!=null;
+return `<div class=row><div style="flex:1">${esc(i.nome)}<div class=mut id=pz${k}></div>${galao&&i.frete>0?`<div class=mut>Frete ${money(i.frete)} por galão</div>`:''}${temTroca?`<select style="margin:6px 0 0;padding:7px" onchange="setTroca(${k},this.value)"><option value=0 ${i.troca?'':'selected'}>Sem troca de galão</option><option value=1 ${i.troca?'selected':''}>Com troca de galão</option></select>`:''}</div><div class=q><button onclick="st(${k},-1)">−</button><b id=q${k}>${i.qtd}</b><button onclick="st(${k},1)">+</button></div></div>`}
+function cform(){const f=S.f;
+const grupo=cat=>{const l=f.itens.map((i,k)=>[i,k]).filter(([i])=>i.cat===cat);return l.length?`<div class=cab2>${cat==='Galão'?'Galões':'Outros'}</div><div class=card>${l.map(([i,k])=>itemRow(i,k)).join('<hr>')}</div>`:''};
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(${f.id?`'detail','${f.id}'`:"'home'"})">←</button><h1>${f.id?'Editar':'Nova'} comanda</h1><span></span></div>
+<label>Cliente cadastrado</label><select id=fc onchange=pick()><option value="">— digitar manualmente —</option>${S.clientes.map(c=>`<option value="${c.id}" ${c.id===f.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select>
+<label>Nome</label><input id=fn value="${esc(f.nome)}"><label>Telefone</label><input id=ft type=tel value="${esc(f.tel)}"><label>Endereço</label><textarea id=fe rows=2>${esc(f.end)}</textarea><label>Observação do cliente</label><input id=fo value="${esc(f.oc)}">
+${grupo('Galão')}${grupo('Outros')}${f.itens.length?'':'<p class=mut>Cadastre produtos no catálogo primeiro.</p>'}
+<div class=card><div class=row><b>Total</b><b id=tt></b></div></div>
+${f.id?'':`<label>Prazo de entrega (em minutos)</label><input id=fp type=number inputmode=numeric placeholder="Ex.: 45" oninput=prazoTxt()><div class=mut id=ptx style="margin-bottom:8px"></div>`}
+<label>Pagamento</label><select id=fm onchange=pg()>${['Dinheiro','Pix','Débito','Crédito'].map(m=>`<option value="${m}" ${m===f.metodo?'selected':''}>${ICO[m]} ${m}</option>`).join('')}</select><div id=pgx></div>
+<label>Observação da comanda</label><input id=fb value="${esc(f.obs)}"><button class=btn onclick="salvar()">Salvar comanda</button></div>`;pg()}
+function pick(){const c=S.clientes.find(x=>x.id===$('#fc').value);if(!c)return;$('#fn').value=c.nome;$('#ft').value=c.telefone||'';$('#fe').value=addr(c);$('#fo').value=c.observacao||''}
+function st(k,d){const i=S.f.itens[k];i.qtd=Math.max(0,i.qtd+d);$('#q'+k).textContent=i.qtd;tot()}
+function setTroca(k,v){S.f.itens[k].troca=v==='1';tot()}
+function pg(){const m=$('#fm').value;$('#pgx').innerHTML=m==='Dinheiro'?`<label>Valor recebido</label><input id=fr type=number step=0.01 inputmode=decimal value="${S.f.rec??''}" oninput=tot()><div class=mut id=tr style="margin-bottom:10px"></div>`:(m==='Pix'?'':'<div class=card>⚠️ Levar maquininha</div>');tot()}
+function tot(){let t=0;S.f.itens.forEach((i,k)=>{t+=linha(i);const z=$('#pz'+k);if(z)z.textContent=money(pu(i))+' cada'+(i.cat==='Galão'&&i.frete>0&&i.qtd>0?' · frete '+money(fr(i)*i.qtd)+' no total':'')});
+$('#tt').textContent=money(t);const r=$('#fr');if(r){const v=parseFloat(r.value);$('#tr').textContent=t>0&&v>=t?'Troco: '+money(v-t):''}return t}
+async function salvar(){const f=S.f,nome=$('#fn').value.trim(),its=f.itens.filter(i=>i.qtd>0);
+if(!nome)return alert('Informe o nome do cliente.');if(!its.length)return alert('Adicione pelo menos um produto.');
+if(!f.id&&!(parseInt($('#fp').value)>0))return alert('Informe o prazo de entrega em minutos.');
+const total=tot(),m=$('#fm').value,rf=$('#fr'),rec=m==='Dinheiro'&&rf&&rf.value!==''?+rf.value:null;
+const row={cliente_id:$('#fc').value||null,cliente_nome:nome,telefone:$('#ft').value,endereco:$('#fe').value,observacao_cliente:$('#fo').value,observacao:$('#fb').value,metodo_pagamento:m,valor_recebido:rec,troco:rec!=null&&rec>=total?+(rec-total).toFixed(2):null,precisa_maquininha:m==='Débito'||m==='Crédito',total};
+let id=f.id,e;
+if(id){({error:e}=await sb.from('comandas').update(row).eq('id',id));if(!e)await sb.from('comanda_itens').delete().eq('comanda_id',id)}
+else{row.prazo_em=new Date(Date.now()+$('#fp').value*60000).toISOString();const r=await sb.from('comandas').insert(row).select('id').single();e=r.error;id=r.data?.id}
+if(e)return alert('Erro: '+e.message);
+const {error:e2}=await sb.from('comanda_itens').insert(its.map(i=>({comanda_id:id,produto_id:i.produto_id,produto_nome:i.nome,quantidade:i.qtd,preco_unitario:pu(i),troca:!!(i.troca&&i.preco_troca!=null),frete:fr(i)})));
+if(e2)return alert('Erro: '+e2.message);
+await load();go('detail',id)}
+
+/* ---------- HISTÓRICO COM CALENDÁRIO ---------- */
+async function historico(){const c=S.cal||(S.cal={y:new Date().getFullYear(),m:new Date().getMonth()});
+const ini=new Date(c.y,c.m,1),fim=new Date(c.y,c.m+1,1);
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Histórico</h1><span></span></div>
+<div class=card><div class=row><button class=ib onclick="calMes(-1)">‹</button><b style="text-transform:capitalize">${ini.toLocaleString('pt-BR',{month:'long',year:'numeric'})}</b><button class=ib onclick="calMes(1)">›</button></div><div class=grade id=gr style="margin-top:10px"></div></div>
+<label>Data</label><input id=hd type=date oninput="buscaHist()">
+<label>Número da comanda ou nome do cliente</label><input id=hq placeholder="Ex.: 12 ou Maria" oninput="buscaHist()">
+<div id=hl></div></div>`;
+const {data}=await sb.from('comandas').select('*,comanda_itens(*)').gte('criado_em',ini.toISOString()).lt('criado_em',fim.toISOString());
+S.mes=data||[];
+const dias=new Date(c.y,c.m+1,0).getDate(),off=ini.getDay();
+const n=d=>S.mes.filter(x=>new Date(x.criado_em).getDate()===d).length;
+$('#gr').innerHTML=['D','S','T','Q','Q','S','S'].map(x=>`<div class=cab>${x}</div>`).join('')+'<div></div>'.repeat(off)+Array.from({length:dias},(_,i)=>`<div class=dia onclick="diaSel(${c.y},${c.m},${i+1})">${i+1}${n(i+1)?`<span class=bola>${n(i+1)}</span>`:''}</div>`).join('');
+buscaHist()}
+function calMes(k){const c=S.cal;c.m+=k;if(c.m<0){c.m=11;c.y--}if(c.m>11){c.m=0;c.y++}historico()}
+function diaSel(y,m,d){$('#hd').value=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;buscaHist()}
+async function buscaHist(){const d=$('#hd')?.value,q=($('#hq')?.value||'').trim();
+let r=sb.from('comandas').select('*,comanda_itens(*)').order('criado_em',{ascending:false}).limit(300);
+if(d){const a=new Date(d+'T00:00:00'),b=new Date(a);b.setDate(b.getDate()+1);r=r.gte('criado_em',a.toISOString()).lt('criado_em',b.toISOString())}
+if(q){r=/^\d+$/.test(q)?r.eq('numero',+q):r.ilike('cliente_nome','%'+q+'%')}
+const {data,error}=await r;if(error)return alert(error.message);
+S.hist=data||[];
+$('#hl').innerHTML=S.hist.map(c=>`<div class=card onclick="go('detail','${c.id}','historico')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>#${c.numero} · ${fdt(c.criado_em)}</span><span>${money(c.total)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda encontrada.</p>'}
+
+/* ---------- CLIENTES ---------- */
+const CF=[['nome','Nome'],['telefone','Telefone'],['rua','Rua'],['numero','Número'],['bairro','Bairro'],['predio','Prédio'],['bloco','Bloco'],['apartamento','Apartamento'],['complemento','Complemento'],['referencia','Referência'],['observacao','Observação permanente']];
+function clientes(){app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Clientes</h1><span></span></div><input placeholder="🔍 Pesquisar cliente pelo nome" oninput="S.q=this.value;lista()" value="${esc(S.q)}"><button class=btn onclick="go('cliform')">+ Novo cliente</button><div id=l></div></div>`;lista()}
+function lista(){const q=S.q.toLowerCase();$('#l').innerHTML=S.clientes.filter(c=>(c.nome||'').toLowerCase().includes(q)).map(c=>`<div class=card onclick="go('cliform','${c.id}')"><b>${esc(c.nome)}</b><div class=mut>${esc(c.telefone||'')}</div><div class=mut>${esc(addr(c))}</div></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
+function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('clientes')">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div>${CF.map(([k,l])=>`<label>${l}</label><input id=c_${k} value="${esc(c[k])}">`).join('')}<button class=btn onclick="salvarCli()">Salvar cliente</button>${S.id?`<button class="btn d" onclick="delRow('clientes')">Excluir cliente</button>`:''}</div>`}
+async function salvarCli(){const r={};CF.forEach(([k])=>r[k]=$('#c_'+k).value.trim()||null);if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('clientes').update(r).eq('id',S.id):await sb.from('clientes').insert(r);if(error)return alert(error.message);S.id=null;await load();go('clientes')}
+async function delRow(t){if(!confirm('Excluir?'))return;const {error}=await sb.from(t).delete().eq('id',S.id);if(error)return alert(error.message);S.id=null;await load();go(t)}
+
+/* ---------- CATÁLOGO ---------- */
+function produtos(){const bloco=(cat,titulo)=>{const l=S.produtos.filter(p=>(p.categoria||'Outros')===cat);return l.length?`<div class=cab2>${titulo}</div>`+l.map(p=>`<div class=card onclick="go('prodform','${p.id}')"><div class=row><b>${esc(p.nome)}</b><span>${money(p.preco)}</span></div>${cat==='Galão'?`<div class=mut>${p.preco_troca!=null?'Com troca: '+money(p.preco_troca)+' · ':''}${p.frete>0?'Frete: '+money(p.frete)+' por galão':'Sem frete'}</div>`:''}${p.ativo?'':'<div class=mut>Inativo</div>'}</div>`).join(''):''};
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Catálogo</h1><span></span></div>${bloco('Galão','Galões')}${bloco('Outros','Outros')}${S.produtos.length?'':'<p class=mut>Nenhum produto. Toque em Novo produto.</p>'}<button class=btn onclick="novoProd('Galão')">+ Galão novo</button><button class="btn s" onclick="novoProd('Outros')">+ Outro produto</button></div>`}
+function prodform(){const p=S.produtos.find(x=>x.id===S.id)||{ativo:true,categoria:S.preCat||'Galão',frete:0};const gal=p.categoria!=='Outros';
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('produtos')">←</button><h1>${S.id?'Editar':'Novo'} produto</h1><span></span></div>
+<label>Nome</label><input id=p_n value="${esc(p.nome)}">
+<label>Categoria</label><select id=p_c onchange=toggleGal()><option ${gal?'selected':''}>Galão</option><option ${gal?'':'selected'}>Outros</option></select>
+<label>Preço (R$)</label><input id=p_p type=number step=0.01 inputmode=decimal value="${p.preco??''}">
+<div id=gal><label>Preço com troca de galão vazio (R$)</label><input id=p_t type=number step=0.01 inputmode=decimal value="${p.preco_troca??''}"><label><input type=checkbox id=p_fc ${p.frete>0?'checked':''} onchange=toggleFrete()>Cobra frete por galão</label><div id=fbox><label>Valor do frete por galão (R$)</label><input id=p_f type=number step=0.01 inputmode=decimal value="${p.frete>0?p.frete:''}"></div></div>
+<label><input type=checkbox id=p_a ${p.ativo?'checked':''}>Ativo (aparece nas novas comandas)</label>
+<button class=btn onclick="salvarProd()">Salvar produto</button>${S.id?`<button class="btn d" onclick="delRow('produtos')">Excluir produto</button>`:''}</div>`;toggleGal()}
+function toggleGal(){$('#gal').style.display=$('#p_c').value==='Galão'?'block':'none';toggleFrete()}
+function toggleFrete(){$('#fbox').style.display=$('#p_fc').checked?'block':'none'}
+function novoProd(cat){S.id=null;S.preCat=cat;go('prodform')}
+async function salvarProd(){const cat=$('#p_c').value,gal=cat==='Galão';
+const r={nome:$('#p_n').value.trim(),categoria:cat,preco:parseFloat($('#p_p').value)||0,preco_troca:gal&&$('#p_t').value!==''?parseFloat($('#p_t').value):null,frete:gal&&$('#p_fc').checked?(parseFloat($('#p_f').value)||0):0,ativo:$('#p_a').checked};
+if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('produtos').update(r).eq('id',S.id):await sb.from('produtos').insert(r);if(error)return alert(error.message);S.id=null;S.preCat=null;await load();go('produtos')}
+
+/* ---------- CONFIGURAÇÕES ---------- */
+function config(){const t=localStorage.getItem('tema')||'auto';app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Configurações</h1><span></span></div><label>Aparência</label><select onchange="localStorage.setItem('tema',this.value);tema()">${[['auto','Automático'],['light','Claro'],['dark','Escuro']].map(([v,l])=>`<option value=${v} ${v===t?'selected':''}>${l}</option>`).join('')}</select><p class=mut>Conectado como ${esc(S.user.email)}</p><button class="btn s" onclick="sb.auth.signOut()">Sair</button></div>`}
+
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
+</script></body></html>
