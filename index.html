@@ -56,7 +56,7 @@ const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:f
 const FORMS=['cform','cliform','prodform','historico'];
 function tema(){const t=localStorage.getItem('tema')||'auto';document.documentElement.dataset.t=(t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light'}
 tema();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',tema);
-const addr=c=>[c.rua&&c.rua+(c.numero?', '+c.numero:''),c.bairro,c.predio&&'Prédio '+c.predio,c.bloco&&'Bloco '+c.bloco,c.apartamento&&'Apto '+c.apartamento,c.complemento,c.referencia&&'Ref.: '+c.referencia].filter(Boolean).join(' · ');
+const addr=c=>[c.rua&&c.rua+(c.numero?', '+c.numero:''),c.bairro,c.cidade,c.cep&&'CEP '+c.cep,c.predio&&'Prédio '+c.predio,c.bloco&&'Bloco '+c.bloco,c.apartamento&&'Apto '+c.apartamento,c.complemento,c.referencia&&'Ref.: '+c.referencia].filter(Boolean).join(' · ');
 function fmtMin(m){m=Math.abs(Math.round(m));if(m<60)return m+' min';const h=Math.floor(m/60),r=m%60;return h+(h>1?' horas':' hora')+(r?` e ${r} min`:'')}
 function cnt(c){if(c.entregue_em)return 'Entregue em '+fmtMin(mins(c.criado_em,c.entregue_em));if(!c.prazo_em)return '';const m=Math.round((new Date(c.prazo_em)-Date.now())/60000);return m>=0?'Faltam '+fmtMin(m):'Atrasada '+fmtMin(m)}
 function tick(){document.querySelectorAll('[data-c]').forEach(e=>{const c=S.comandas.find(x=>x.id===e.dataset.c);if(c)e.textContent=cnt(c)})}
@@ -112,7 +112,12 @@ ${c.frete_por_galao>0?`<hr><div class=row><span class=mut>Frete: ${money(c.frete
 ${c.observacao?`<div class="card obs"><b>📝 Observação da comanda</b><div style="margin-top:4px">${esc(c.observacao)}</div></div>`:''}
 <div class=row>${['Pendente','Em entrega','Entregue'].map(s=>`<button class="btn ${c.status===s?'':'s'}" onclick="setSt('${c.id}','${s}')">${s}</button>`).join('')}</div>
 <button class="btn s" onclick="editar('${c.id}')">✏️ Editar comanda</button><button class="btn d" onclick="delC('${c.id}')">Excluir comanda</button></div>`}
-async function setSt(id,s){const {error}=await sb.from('comandas').update({status:s,entregue_em:s==='Entregue'?new Date().toISOString():null}).eq('id',id);if(error)return alert(error.message);await load();if(s==='Entregue')go('home')}
+async function setSt(id,s){const agora=s==='Entregue'?new Date().toISOString():null;
+const {error}=await sb.from('comandas').update({status:s,entregue_em:agora}).eq('id',id);if(error)return alert(error.message);
+[...S.comandas,...S.hist,...S.mes].forEach(x=>{if(x.id===id){x.status=s;x.entregue_em=agora}});
+if(s==='Entregue')voltaInicio();
+await load()}
+function voltaInicio(){if(history.state&&history.state.vf)history.replaceState(null,'');S.v='home';S.id=null;S.back=null;S.menu=false;scrollTo(0,0);render()}
 async function delC(id){if(!confirm('Excluir esta comanda?'))return;const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);go('home')}
 
 /* ---------- NOVA / EDITAR COMANDA ---------- */
@@ -130,7 +135,7 @@ const sec=(cat,titulo,id)=>{const l=f.itens.map((i,k)=>[i,k]).filter(([i])=>i.ca
 return `<div class=card><div class=sec onclick="togSec('${id}')"><b id=h_${id}>▸ ${titulo}</b><span class=mut id=n_${id}></span></div><div id=b_${id} style="display:none;margin-top:8px">${l.map(([i,k])=>itemRow(i,k)).join('<hr>')}${cat==='Galão'?`<hr><button class="btn s" id=fbtn onclick="abreFrete()">🚚 Adicionar frete</button>`:''}</div></div>`};
 app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(${f.id?`'detail','${f.id}'`:"'home'"})">←</button><h1>${f.id?'Editar':'Nova'} comanda</h1><span></span></div>
 <label>Cliente cadastrado</label><select id=fc onchange=pick()><option value="">— digitar manualmente —</option>${S.clientes.map(c=>`<option value="${c.id}" ${c.id===f.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select>
-<label>Nome</label><input id=fn value="${esc(f.nome)}"><label>Telefone</label><input id=ft type=tel value="${esc(f.tel)}"><label>Endereço</label><textarea id=fe rows=2>${esc(f.end)}</textarea><label>Observação do cliente</label><input id=fo value="${esc(f.oc)}">
+<label>Nome</label><input id=fn value="${esc(f.nome)}"><label>Telefone</label><input id=ft type=tel value="${esc(f.tel)}"><label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div><label>Endereço</label><textarea id=fe rows=2>${esc(f.end)}</textarea><label>Observação do cliente</label><input id=fo value="${esc(f.oc)}">
 ${sec('Galão','Galões','gal')}${sec('Outros','Outros','out')}${f.itens.length?'':'<p class=mut>Cadastre produtos no catálogo primeiro.</p>'}
 <div class=card><div class=row><b>Total</b><b id=tt></b></div></div>
 ${f.id?'':`<label>Prazo de entrega (em minutos)</label><input id=fp type=number inputmode=numeric placeholder="Ex.: 45" oninput=prazoTxt()><div class=mut id=ptx style="margin-bottom:8px"></div>`}
@@ -180,14 +185,29 @@ if(!pos){box.innerHTML='<div class=card><span class=mut>Ative a localização do
 box.innerHTML='<div class=card><span class=mut>Procurando a entrega mais próxima…</span></div>';
 for(const c of pend){if(c.lat==null&&c.endereco)await geocodeC(c)}
 if(!$('#sug'))return;
-const com=pend.filter(c=>c.lat!=null).map(c=>({c,d:distKm(pos,{lat:c.lat,lng:c.lng})})).sort((a,b)=>a.d-b.d);
-if(!com.length){box.innerHTML='<div class=card><span class=mut>Não encontrei o endereço das entregas pendentes. Confira os endereços.</span></div>';return}
+const ign=S.ign||new Set();const com=pend.filter(c=>c.lat!=null&&!ign.has(c.id)).map(c=>({c,d:distKm(pos,{lat:c.lat,lng:c.lng})})).sort((a,b)=>a.d-b.d);
+if(!com.length){box.innerHTML=pend.every(c=>ign.has(c.id))?'':'<div class=card><span class=mut>Não encontrei o endereço das entregas pendentes. Confira os endereços.</span></div>';return}
 const {c,d}=com[0];
-box.innerHTML=`<div class=card><div class=mut>Entrega mais próxima</div><div class=row><b>${esc(c.cliente_nome)}</b><span>${d.toFixed(1).replace('.',',')} km</span></div><div class=mut>${esc(c.endereco||'')}</div><button class=btn onclick="iniciar('${c.id}')">Iniciar entrega</button></div>`}
+box.innerHTML=`<div class=card><div class=mut>Entrega mais próxima</div><div class=row><b>${esc(c.cliente_nome)}</b><span>${d.toFixed(1).replace('.',',')} km</span></div><div class=mut>${esc(c.endereco||'')}</div><div class=row><button class="btn s" onclick="naoIr('${c.id}')">Não ir</button><button class=btn onclick="iniciar('${c.id}')">Ir</button></div></div>`}
 async function iniciar(id){const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
 await load();const c=S.comandas.find(x=>x.id===id);const ov=$('#ovi');if(!ov)return;
 ov.innerHTML=`<div class=box><b>Entrega iniciada</b><p class=mut style="margin:6px 0 10px">${esc(c?c.cliente_nome:'')}${c&&c.endereco?' · '+esc(c.endereco):''}</p><div class=row><button class="btn s" onclick="fechaIni()">Fechar</button><button class=btn onclick="fechaIni();go('detail','${id}')">Ir</button></div></div>`;ov.style.display='flex'}
 function fechaIni(){const ov=$('#ovi');if(ov)ov.style.display='none'}
+
+function naoIr(id){(S.ign=S.ign||new Set()).add(id);atualizaSug()}
+
+/* ---------- BUSCA DE ENDEREÇO (preenche rua, número, bairro, cidade e CEP) ---------- */
+let _bt=null;
+function buscaEnd(){clearTimeout(_bt);const q=($('#bq').value||'').trim();if(q.length<4){$('#bl').innerHTML='';return}
+_bt=setTimeout(async()=>{$('#bl').innerHTML='<p class=mut>Buscando…</p>';
+try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='+encodeURIComponent(q),{headers:{'Accept-Language':'pt-BR'}});const j=await r.json();
+S.busca=j.map(x=>{const a=x.address||{};return {rua:a.road||'',numero:a.house_number||'',bairro:a.suburb||a.neighbourhood||a.quarter||'',cidade:a.city||a.town||a.village||a.municipality||'',cep:a.postcode||'',label:x.display_name}});
+$('#bl').innerHTML=S.busca.map((e,i)=>`<div class=card onclick="escolheEnd(${i})"><b>${esc(e.rua||e.label)}${e.numero?', '+esc(e.numero):''}</b><div class=mut>${esc([e.bairro,e.cidade,e.cep].filter(Boolean).join(' · '))}</div></div>`).join('')||'<p class=mut>Nenhum endereço encontrado. Tente outro nome de rua.</p>'}
+catch(err){$('#bl').innerHTML='<p class=mut>Sem conexão para buscar o endereço.</p>'}},600)}
+function escolheEnd(i){const e=S.busca[i];if(!e)return;
+if($('#c_rua')){for(const k of ['rua','numero','bairro','cidade','cep']){const el=$('#c_'+k);if(el)el.value=e[k]||''}}
+else if($('#fe')){$('#fe').value=[e.rua+(e.numero?', '+e.numero:''),e.bairro,e.cidade+(e.cep?' - CEP '+e.cep:'')].filter(Boolean).join(', ')}
+$('#bl').innerHTML='';$('#bq').value=''}
 
 /* ---------- HISTÓRICO COM CALENDÁRIO ---------- */
 async function historico(){const c=S.cal||(S.cal={y:new Date().getFullYear(),m:new Date().getMonth()});
@@ -214,10 +234,10 @@ S.hist=data||[];
 $('#hl').innerHTML=S.hist.map(c=>`<div class=card onclick="go('detail','${c.id}','historico')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>#${c.numero} · ${fdt(c.criado_em)}</span><span>${money(c.total)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda encontrada.</p>'}
 
 /* ---------- CLIENTES ---------- */
-const CF=[['nome','Nome'],['telefone','Telefone'],['rua','Rua'],['numero','Número'],['bairro','Bairro'],['predio','Prédio'],['bloco','Bloco'],['apartamento','Apartamento'],['complemento','Complemento'],['referencia','Referência'],['observacao','Observação permanente']];
+const CF=[['nome','Nome'],['telefone','Telefone'],['rua','Rua'],['numero','Número'],['bairro','Bairro'],['cidade','Cidade'],['cep','CEP'],['predio','Prédio'],['bloco','Bloco'],['apartamento','Apartamento'],['complemento','Complemento'],['referencia','Referência'],['observacao','Observação permanente']];
 function clientes(){app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Clientes</h1><span></span></div><input placeholder="🔍 Pesquisar cliente pelo nome" oninput="S.q=this.value;lista()" value="${esc(S.q)}"><button class=btn onclick="go('cliform')">+ Novo cliente</button><div id=l></div></div>`;lista()}
 function lista(){const q=S.q.toLowerCase();$('#l').innerHTML=S.clientes.filter(c=>(c.nome||'').toLowerCase().includes(q)).map(c=>`<div class=card onclick="go('cliform','${c.id}')"><b>${esc(c.nome)}</b><div class=mut>${esc(c.telefone||'')}</div><div class=mut>${esc(addr(c))}</div></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
-function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('clientes')">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div>${CF.map(([k,l])=>`<label>${l}</label><input id=c_${k} value="${esc(c[k])}">`).join('')}<button class=btn onclick="salvarCli()">Salvar cliente</button>${S.id?`<button class="btn d" onclick="delRow('clientes')">Excluir cliente</button>`:''}</div>`}
+function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('clientes')">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div><label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div>${CF.map(([k,l])=>`<label>${l}</label><input id=c_${k} value="${esc(c[k])}">`).join('')}<button class=btn onclick="salvarCli()">Salvar cliente</button>${S.id?`<button class="btn d" onclick="delRow('clientes')">Excluir cliente</button>`:''}</div>`}
 async function salvarCli(){const r={};CF.forEach(([k])=>r[k]=$('#c_'+k).value.trim()||null);if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('clientes').update(r).eq('id',S.id):await sb.from('clientes').insert(r);if(error)return alert(error.message);S.id=null;await load();go('clientes')}
 async function delRow(t){if(!confirm('Excluir?'))return;const {error}=await sb.from(t).delete().eq('id',S.id);if(error)return alert(error.message);S.id=null;await load();go(t)}
 
