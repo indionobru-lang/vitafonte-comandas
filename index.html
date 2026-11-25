@@ -18,6 +18,7 @@ a{color:var(--pri);text-decoration:none;font-weight:600}
 .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .mut{color:var(--mut);font-size:14px}
 .btn{flex:1;background:var(--pri);color:#fff;border:0;border-radius:12px;padding:13px 12px;font-weight:600;font-size:16px;width:100%;margin-top:8px;display:block;text-align:center;text-decoration:none;cursor:pointer}
+.btn:disabled{opacity:.6}
 .row .btn{margin-top:0;font-size:14px;padding:11px 4px}
 .btn.s{background:var(--card);color:var(--tx);border:1px solid var(--bd)}
 .btn.d{background:var(--bad)}
@@ -42,6 +43,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:10px 0}
 .ov{display:none;position:fixed;inset:0;background:#0008;align-items:center;justify-content:center;z-index:10}
 .ov .box{background:var(--card);border-radius:14px;padding:16px;width:min(320px,90vw)}
 </style></head><body><div id="app"></div>
+<div class=ov id=ovi></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 const sb=supabase.createClient('https://rqmpidfkuukncuvqgeyu.supabase.co','sb_publishable_azoA2qDBUQNBTShowTfjkg_WBjShstd');
@@ -52,7 +54,7 @@ const fdt=d=>d?new Date(d).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit'
 const mins=(a,b)=>Math.round((new Date(b)-new Date(a))/60000);
 const SC={'Pendente':'p','Em entrega':'e','Entregue':'g'};
 const ICO={Dinheiro:'💵',Pix:'💠',Débito:'💳',Crédito:'💳'};
-const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false,nf:new Set(),ign:new Set()};
+const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false,nf:new Set(),selecting:false,voltarSel:false,sig:'',salvando:false,stBusy:false};
 const FORMS=['cform','cliform','prodform','historico'];
 function tema(){const t=localStorage.getItem('tema')||'auto';document.documentElement.dataset.t=(t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light'}
 tema();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',tema);
@@ -62,21 +64,24 @@ function cnt(c){if(c.entregue_em)return 'Entregue em '+fmtMin(mins(c.criado_em,c
 function tick(){document.querySelectorAll('[data-c]').forEach(e=>{const c=S.comandas.find(x=>x.id===e.dataset.c);if(c)e.textContent=cnt(c)})}
 function prazoTxt(){const v=parseInt($('#fp').value);$('#ptx').textContent=v>0?'Prazo: '+fmtMin(v):''}
 
-/* ---------- RASCUNHOS: o que você digita fica salvo se sair do app ---------- */
+/* ---------- RASCUNHOS E TELA ATUAL: nada some se o app for recriado ---------- */
 function collectCampos(){const o={};document.querySelectorAll('#app input[id],#app textarea[id],#app select[id]').forEach(el=>{if(el.type!=='checkbox')o[el.id]=el.value});return o}
 function applyCampos(o){Object.entries(o||{}).forEach(([id,v])=>{const el=document.getElementById(id);if(el)el.value=v})}
+function readDraft(){try{return JSON.parse(localStorage.getItem('draft_cform_novo')||'null')}catch(e){return null}}
 function salvaRascunho(){
   if(S.v==='cform'&&S.f&&!S.f.id)localStorage.setItem('draft_cform_novo',JSON.stringify({f:S.f,campos:collectCampos()}));
   else if(S.v==='cliform'&&!S.id)localStorage.setItem('draft_cli_novo',JSON.stringify(collectCampos()));
 }
+function salvaTela(){localStorage.setItem('tela',JSON.stringify({v:S.v,id:S.id,sel:S.selecting}))}
 
-/* navegação: o botão voltar do Android sai da comanda e volta para o início */
+/* navegação: o botão voltar do Android sai da tela atual e volta ao início */
 function go(v,id,back,pop){
   if(!pop&&v==='home'&&S.v!=='home'&&history.state&&history.state.vf){history.back();return}
+  salvaRascunho();
   const wasHome=S.v==='home';
-  S.v=v;S.id=id||null;S.back=back||null;S.menu=false;S.q='';scrollTo(0,0);
+  S.v=v;S.id=id||null;S.back=back||null;S.menu=false;S.q='';if(v!=='clientes')S.selecting=false;scrollTo(0,0);
   if(!pop&&wasHome&&v!=='home')history.pushState({vf:1},'');
-  render()}
+  salvaTela();render()}
 addEventListener('popstate',()=>{if(S.v!=='home'&&S.user)go('home',null,null,true)});
 function render(){if(!S.user)return login();({home,detail,cform,clientes,cliform,produtos,prodform,config,historico})[S.v]()}
 async function load(){
@@ -86,90 +91,101 @@ async function load(){
     sb.from('produtos').select('*').order('nome'),
     sb.from('comandas').select('*,comanda_itens(*)').gte('criado_em',t.toISOString()).order('criado_em',{ascending:false})]);
   if(c.data)S.clientes=c.data;if(p.data)S.produtos=p.data;if(o.data)S.comandas=o.data;
-  if(!FORMS.includes(S.v))render();
+  const sig=JSON.stringify([c.data,p.data,o.data]);
+  if(sig===S.sig)return;S.sig=sig;
+  const faltaItem=S.v==='cform'&&S.f&&S.f.itens&&S.f.itens.length!==S.produtos.length;
+  if(!FORMS.includes(S.v)||faltaItem)render();
 }
 function start(){
   load();if(S.started)return;S.started=true;
-  sb.channel('rt').on('postgres_changes',{event:'*',schema:'public'},()=>{clearTimeout(S.t);S.t=setTimeout(load,300)}).subscribe();
+  sb.channel('rt').on('postgres_changes',{event:'*',schema:'public'},()=>{clearTimeout(S.t);S.t=setTimeout(load,400)}).subscribe();
   setInterval(tick,30000);
 }
-sb.auth.onAuthStateChange((e,s)=>{S.user=s?.user||null;if(!S.user){S.v='home';return render()}if(e==='INITIAL_SESSION'||e==='SIGNED_IN')setTimeout(start,0);render()});
+function freshF(){return {cliente:null,frete:0,metodo:'Dinheiro',itens:S.produtos.map(itemOf)}}
+function restauraTela(){let t=null;try{t=JSON.parse(localStorage.getItem('tela')||'null')}catch(e){}
+if(!t)return;
+if(t.v==='cform'&&!t.id){S.f=((readDraft()||{}).f)||freshF();S.v='cform'}
+else if(t.v==='clientes'&&t.sel){S.f=((readDraft()||{}).f)||freshF();S.selecting=true;S.v='clientes'}
+else if(t.v==='cliform'&&!t.id){S.v='cliform'}
+else if(t.v==='clientes'){S.v='clientes'}}
+sb.auth.onAuthStateChange((e,s)=>{S.user=s?.user||null;if(!S.user){S.v='home';return render()}
+  if(e==='INITIAL_SESSION'&&!S.restaurado){S.restaurado=true;restauraTela()}
+  if(e==='INITIAL_SESSION'||e==='SIGNED_IN')setTimeout(start,0);render()});
 
 function login(){app.innerHTML=`<div class=w style="padding-top:12vh;text-align:center"><img src=icon-192.png width=96 style="border-radius:22px"><h1>VitaFonte Comandas</h1><p class=mut>Entre com o login da loja</p><input id=em type=email placeholder="E-mail" autocomplete=username><input id=pw type=password placeholder="Senha" autocomplete=current-password><button class=btn onclick="entrar()">Entrar</button><p id=er style="color:var(--bad)"></p></div>`}
 async function entrar(){const {error}=await sb.auth.signInWithPassword({email:$('#em').value.trim(),password:$('#pw').value});if(error)$('#er').textContent='E-mail ou senha incorretos.'}
 
-/* ---------- INÍCIO ---------- */
+/* ---------- INÍCIO: comandas de hoje, do menor prazo para o maior ---------- */
 function home(){const h=new Date().getHours(),g=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
-app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div><div id=sug></div>
-${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo de produtos</a><a onclick="go('config')">⚙️ Aparência e configurações</a></div>`:''}
-${S.comandas.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje. Toque em Nova comanda para começar.</p>'}
-<button class=btn onclick="novo()">+ Nova comanda</button><div class=ov id=ovi></div></div>`;atualizaSug().catch(e=>{const b=$('#sug');if(b)b.innerHTML='<div class=card><span class=mut>Erro na sugestão: '+esc(e.message)+'</span></div>'})}
+const ord=S.comandas.slice().sort((a,b)=>{const ea=a.status==='Entregue'?1:0,eb=b.status==='Entregue'?1:0;if(ea!==eb)return ea-eb;return new Date(a.prazo_em||0)-new Date(b.prazo_em||0)});
+app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div>
+${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo</a><a onclick="go('config')">⚙️ Configurações</a></div>`:''}
+${ord.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje.</p>'}
+<button class=btn onclick="novo()">+ Nova comanda</button></div>`}
 
-/* ---------- DETALHE ---------- */
+/* ---------- DETALHE DA COMANDA ---------- */
 function detail(){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===S.id);if(!c)return go('home');
 const it=c.comanda_itens||[],din=c.metodo_pagamento==='Dinheiro';
 app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(S.back||'home')">←</button><h1>Comanda #${c.numero}</h1><span></span></div>
 <div class=card><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div>
-<div class=mut>Criada: ${fdt(c.criado_em)}</div><div class=mut>Prazo: ${fdt(c.prazo_em)} · <b data-c="${c.id}">${cnt(c)}</b></div>
-${c.entregue_em?`<div class=mut>Entregue: ${fdt(c.entregue_em)} (${fmtMin(mins(c.criado_em,c.entregue_em))})</div>`:''}</div>
+<div class=mut>Prazo: ${fdt(c.prazo_em)} · <b data-c="${c.id}">${cnt(c)}</b></div>${c.entregue_em?`<div class=mut>Entregue: ${fdt(c.entregue_em)}</div>`:''}</div>
 <div class=card>${it.map(i=>`<div class=row><span>${i.quantidade}× ${esc(i.produto_nome)}<div class=mut>${money(i.preco_unitario)} cada</div></span><span>${money(i.quantidade*i.preco_unitario)}</span></div>`).join('<hr>')}
 ${c.frete_por_galao>0?`<hr><div class=row><span class=mut>Frete: ${money(c.frete_por_galao)} × ${c.qtd_galoes} galão(ões)</span><span>${money(c.frete_por_galao*c.qtd_galoes)}</span></div>`:''}
-<hr><div class=row><b>Total</b><b>${money(c.total)}</b></div></div>
-<div class=card>${ICO[c.metodo_pagamento]||'💰'} ${esc(c.metodo_pagamento||'-')}${din&&c.valor_recebido!=null?`<div class=mut>Recebido ${money(c.valor_recebido)} · Troco ${money(c.troco)}</div>`:''}${c.precisa_maquininha?'<div class=mut>⚠️ Levar maquininha</div>':''}</div>
+<hr><div class=row><b>Total</b><b>${money(c.total)}</b></div>
+<hr><div>${ICO[c.metodo_pagamento]||'💰'} ${esc(c.metodo_pagamento||'-')}${din&&c.valor_recebido!=null?` · recebido ${money(c.valor_recebido)} · troco ${money(c.troco)}`:''}${c.precisa_maquininha?'<div class=mut>⚠️ Levar maquininha</div>':''}</div></div>
 <div class=card><div>📍 ${esc(c.endereco||'-')}</div>${c.endereco?`<div class=row style="margin:8px 0 2px"><a class=btn href="intent://?q=${encodeURIComponent(c.endereco)}&navigate=yes#Intent;scheme=waze;package=com.waze;end">🧭 Waze</a><a class="btn s" href="intent://navigate?q=${encodeURIComponent(c.endereco)}#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end">🧭 Google Maps</a></div>`:''}<div class=mut style="margin-top:8px">📞 ${c.telefone?`<a href="tel:${esc(c.telefone)}">${esc(c.telefone)}</a>`:'-'}</div>${c.observacao_cliente?`<div class=mut>Obs. do cliente: ${esc(c.observacao_cliente)}</div>`:''}</div>
 ${c.observacao?`<div class="card obs"><b>📝 Observação da comanda</b><div style="margin-top:4px">${esc(c.observacao)}</div></div>`:''}
 <div class=row>${['Pendente','Em entrega','Entregue'].map(s=>`<button class="btn ${c.status===s?'':'s'}" onclick="setSt('${c.id}','${s}')">${s}</button>`).join('')}</div>
 <button class="btn s" onclick="editar('${c.id}')">✏️ Editar comanda</button><button class="btn d" onclick="delC('${c.id}')">Excluir comanda</button></div>`}
-async function setSt(id,s){const agora=s==='Entregue'?new Date().toISOString():null;
-const {error}=await sb.from('comandas').update({status:s,entregue_em:agora}).eq('id',id);if(error)return alert(error.message);
-[...S.comandas,...S.hist,...S.mes].forEach(x=>{if(x.id===id){x.status=s;x.entregue_em=agora}});
-if(s==='Entregue')voltaInicio();
-await load()}
-function voltaInicio(){if(history.state&&history.state.vf)history.replaceState(null,'');S.v='home';S.id=null;S.back=null;S.menu=false;scrollTo(0,0);render()}
+async function setSt(id,s){if(S.stBusy)return;S.stBusy=true;
+try{const agora=s==='Entregue'?new Date().toISOString():null;
+  const {error}=await sb.from('comandas').update({status:s,entregue_em:agora}).eq('id',id);if(error)return alert(error.message);
+  [...S.comandas,...S.hist,...S.mes].forEach(x=>{if(x.id===id){x.status=s;x.entregue_em=agora}});
+  if(s==='Entregue'){voltaInicio();await load();checaPendentes()}
+  else await load();
+}finally{S.stBusy=false}}
+function voltaInicio(){if(history.state&&history.state.vf)history.replaceState(null,'');S.v='home';S.id=null;S.back=null;S.menu=false;S.selecting=false;scrollTo(0,0);salvaTela();render()}
 async function delC(id){if(!confirm('Excluir esta comanda?'))return;const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);go('home')}
 
 /* ---------- NOVA / EDITAR COMANDA ---------- */
 const itemOf=p=>({produto_id:p.id,nome:p.nome,cat:p.categoria||'Outros',preco:+p.preco,qtd:0});
-function novo(){const d=JSON.parse(localStorage.getItem('draft_cform_novo')||'null');
-const base=(d&&d.f)?d.f:{frete:0,metodo:'Dinheiro',rua:'',num:'',comp:'',bai:'',cid:'',cep:'',geo:null};
-const qt={};((base.itens)||[]).forEach(i=>qt[i.produto_id]=i.qtd);
-S.f={...base,metodo:base.metodo||'Dinheiro',itens:S.produtos.map(p=>({...itemOf(p),qtd:qt[p.id]||0}))};
-S.pendCampos=d?d.campos:null;go('cform')}
+function novo(){const d=readDraft();S.f=(d&&d.f)?d.f:freshF();go('cform')}
+function sincronizaItens(){const f=S.f;const old={};(f.itens||[]).forEach(i=>old[i.produto_id]=i);
+const base=S.produtos.map(p=>{const o=old[p.id];return {...itemOf(p),qtd:o?o.qtd:0,preco:(f.id&&o)?o.preco:+p.preco}});
+const extra=(f.itens||[]).filter(i=>!S.produtos.some(p=>p.id===i.produto_id)&&i.qtd>0);
+f.itens=[...base,...extra]}
 function editar(id){const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===id);const old=c.comanda_itens||[];
 const base=S.produtos.map(itemOf);
 // preços já gravados na comanda continuam congelados
 const itens=base.map(b=>{const o=old.find(i=>i.produto_id===b.produto_id);return o?{...b,qtd:o.quantidade,preco:+o.preco_unitario}:b});
 old.filter(o=>!base.some(b=>b.produto_id===o.produto_id)).forEach(o=>itens.push({produto_id:o.produto_id,nome:o.produto_nome,cat:'Outros',preco:+o.preco_unitario,qtd:o.quantidade}));
-S.f={id,cliente_id:c.cliente_id,nome:c.cliente_nome,tel:c.telefone,obs:c.observacao,oc:c.observacao_cliente,metodo:c.metodo_pagamento||'Dinheiro',rec:c.valor_recebido,frete:+(c.frete_por_galao||0),rua:c.endereco||'',num:'',comp:'',bai:'',cid:'',cep:'',geo:null,itens};
-S.pendCampos=null;go('cform')}
+S.f={id,cliente:{id:c.cliente_id,nome:c.cliente_nome,telefone:c.telefone||'',endereco:c.endereco||'',observacao_cliente:c.observacao_cliente||null,lat:c.lat??null,lng:c.lng??null},obs:c.observacao,metodo:c.metodo_pagamento||'Dinheiro',rec:c.valor_recebido,frete:+(c.frete_por_galao||0),itens};
+go('cform')}
 function itemRow(i,k){return `<div class=row><div style="flex:1">${esc(i.nome)}<div class=mut>${money(i.preco)} cada</div></div><div class=q><button onclick="st(${k},-1)">−</button><b id=q${k}>${i.qtd}</b><button onclick="st(${k},1)">+</button></div></div>`}
 function togSec(id){const b=$('#b_'+id),abre=b.style.display==='none';b.style.display=abre?'block':'none';const h=$('#h_'+id);h.textContent=(abre?'▾ ':'▸ ')+h.textContent.slice(2)}
-function cform(){const f=S.f;
-const keep=S.pendCampos||(document.getElementById('fn')?collectCampos():null);S.pendCampos=null;
-const temGal=S.produtos.some(p=>p.ativo!==false&&p.categoria==='Galão');
-const sec=(cat,titulo,id)=>{const l=f.itens.map((i,k)=>[i,k]).filter(([i])=>i.cat===cat);if(!l.length)return '';
-return `<div class=card><div class=sec onclick="togSec('${id}')"><b id=h_${id}>▸ ${titulo}</b><span class=mut id=n_${id}></span></div><div id=b_${id} style="display:none;margin-top:8px">${l.map(([i,k])=>itemRow(i,k)).join('<hr>')}${cat==='Galão'?`<hr><button class="btn s" id=fbtn onclick="abreFrete()">🚚 Adicionar frete</button>`:''}</div></div>`};
-app.innerHTML=`<div class=w oninput="salvaRascunho()"><div class=top><button class=ib onclick="go(${f.id?`'detail','${f.id}'`:"'home'"})">←</button><h1>${f.id?'Editar':'Nova'} comanda</h1><span></span></div>
-<label>Cliente cadastrado</label><input id=fcs placeholder="🔍 Digite o nome do cliente" oninput="filtraCliSel()"><select id=fc onchange=pick()><option value="">— digitar manualmente —</option>${S.clientes.map(c=>`<option value="${c.id}" ${c.id===f.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('')}</select>
-<label>Nome</label><input id=fn value="${esc(f.nome)}"><label>Telefone</label><input id=ft type=tel value="${esc(f.tel)}">
-<label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div>
-<label>Rua</label><input id=fRua value="${esc(f.rua)}"><label>Número</label><input id=fNum value="${esc(f.num)}"><label>Complemento (prédio, bloco, apartamento)</label><input id=fComp value="${esc(f.comp)}"><label>Bairro</label><input id=fBai value="${esc(f.bai)}"><label>Cidade</label><input id=fCid value="${esc(f.cid)}"><label>CEP</label><input id=fCep value="${esc(f.cep)}">
-<label>Observação do cliente</label><input id=fo value="${esc(f.oc)}">
+function cform(){
+  sincronizaItens();
+  const f=S.f;
+  const d=f.id?null:readDraft();
+  const keep=(d&&d.campos)?d.campos:null;
+  const sec=(cat,titulo,id)=>{const l=f.itens.map((i,k)=>[i,k]).filter(([i])=>i.cat===cat);if(!l.length)return '';
+    return `<div class=card><div class=sec onclick="togSec('${id}')"><b id=h_${id}>▸ ${titulo}</b><span class=mut id=n_${id}></span></div><div id=b_${id} style="display:none;margin-top:8px">${l.map(([i,k])=>itemRow(i,k)).join('<hr>')}${cat==='Galão'?`<hr><button class="btn s" id=fbtn onclick="abreFrete()">🚚 Adicionar frete</button>`:''}</div></div>`};
+  const cli=f.cliente;
+  app.innerHTML=`<div class=w oninput="salvaRascunho()"><div class=top><button class=ib onclick="go(${f.id?`'detail','${f.id}'`:"'home'"})">←</button><h1>${f.id?'Editar':'Nova'} comanda</h1><span></span></div>
+<div class=card><div class=row><div><label>Cliente</label><div><b>${cli?esc(cli.nome):'<span class=mut>Nenhum cliente escolhido</span>'}</b></div>${cli&&cli.telefone?`<div class=mut>${esc(cli.telefone)}</div>`:''}</div><button class="btn s" style="width:auto;margin:0;padding:10px 14px" onclick="escolherCliente()">${cli?'Trocar':'Escolher'}</button></div></div>
 ${sec('Galão','Galões','gal')}${sec('Outros','Outros','out')}${f.itens.length?'':'<p class=mut>Cadastre produtos no catálogo primeiro.</p>'}
 <div class=card><div class=row><b>Total</b><b id=tt></b></div></div>
 ${f.id?'':`<label>Prazo de entrega (em minutos)</label><input id=fp type=number inputmode=numeric placeholder="Ex.: 45" oninput=prazoTxt()><div class=mut id=ptx style="margin-bottom:8px"></div>`}
 <label>Pagamento</label><select id=fm onchange=pg()>${['Dinheiro','Pix','Débito','Crédito'].map(m=>`<option value="${m}" ${m===f.metodo?'selected':''}>${ICO[m]} ${m}</option>`).join('')}</select><div id=pgx></div>
-<label>Observação da comanda</label><input id=fb value="${esc(f.obs)}"><button class=btn onclick="salvar()">Salvar comanda</button></div>
+<label>Observação da comanda</label><input id=fb value="${esc(f.obs)}"><button class=btn id=btnSalvar onclick="salvar()">Salvar comanda</button></div>
 <div class=ov id=ovf><div class=box><b>Frete por galão</b><p class=mut style="margin:6px 0 10px">Digite o valor de um galão. Ele será cobrado por cada galão da comanda.</p><input id=fv type=number step=0.01 inputmode=decimal placeholder="Ex.: 5,00"><div class=row style="margin-top:6px"><button class="btn s" onclick="fechaFrete()">Cancelar</button><button class=btn onclick="confirmaFrete()">Confirmar</button></div>${f.frete>0?'<button class="btn d" onclick="removeFrete()">Remover frete</button>':''}</div></div>`;
-if(keep)applyCampos(keep);
-pg();if(keep)applyCampos(keep);tot();salvaRascunho()}
-function filtraCliSel(){const q=($('#fcs').value||'').toLowerCase(),s=$('#fc'),cur=s.value;
-s.innerHTML='<option value="">— digitar manualmente —</option>'+S.clientes.filter(c=>(c.nome||'').toLowerCase().includes(q)).map(c=>`<option value="${c.id}" ${c.id===cur?'selected':''}>${esc(c.nome)}</option>`).join('')}
-function pick(){const c=S.clientes.find(x=>x.id===$('#fc').value);if(!c)return;
-$('#fn').value=c.nome;$('#ft').value=c.telefone||'';$('#fRua').value=c.rua||'';$('#fNum').value=c.numero||'';
-$('#fComp').value=[c.predio&&'Prédio '+c.predio,c.bloco&&'Bloco '+c.bloco,c.apartamento&&'Apto '+c.apartamento,c.complemento].filter(Boolean).join(', ');
-$('#fBai').value=c.bairro||'';$('#fCid').value=c.cidade||'';$('#fCep').value=c.cep||'';$('#fo').value=c.observacao||'';
-S.f.geo=null;salvaRascunho()}
+  if(keep)applyCampos(keep);
+  pg();if(keep)applyCampos(keep);
+  tot()}
+function escolherCliente(){S.selecting=true;S.voltarSel=false;go('clientes')}
+function escolhe(id){const c=S.clientes.find(x=>x.id===id);if(!c||!S.f)return;
+S.f.cliente={id:c.id,nome:c.nome,telefone:c.telefone||'',endereco:addr(c),observacao_cliente:c.observacao||null,lat:c.lat??null,lng:c.lng??null};
+S.selecting=false;salvaRascunho();go('cform')}
 function st(k,d){const i=S.f.itens[k];i.qtd=Math.max(0,i.qtd+d);$('#q'+k).textContent=i.qtd;tot();salvaRascunho()}
 function abreFrete(){$('#fv').value=S.f.frete>0?S.f.frete:'';$('#ovf').style.display='flex'}
 function fechaFrete(){$('#ovf').style.display='none'}
@@ -181,15 +197,13 @@ S.f.itens.forEach(i=>{t+=i.qtd*i.preco;if(i.cat==='Galão'){g+=i.qtd;n.gal+=i.qt
 S.f.galoes=g;const frt=(S.f.frete||0)*g;t+=frt;
 const b=$('#fbtn');if(b)b.textContent=S.f.frete>0?`🚚 Frete: ${money(S.f.frete)} × ${g} galão(ões) = ${money(frt)} (alterar)`:'🚚 Adicionar frete';
 for(const id of ['gal','out']){const e=$('#n_'+id);if(e)e.textContent=n[id]?n[id]+' selecionado(s)':''}
-$('#tt').textContent=money(t);const r=$('#fr');if(r){const v=parseFloat(r.value);$('#tr').textContent=t>0&&v>=t?'Troco: '+money(v-t):''}return t}
-async function salvar(){const f=S.f,nome=$('#fn').value.trim(),its=f.itens.filter(i=>i.qtd>0);
-if(!nome)return alert('Informe o nome do cliente.');if(!its.length)return alert('Adicione pelo menos um produto.');
+const tt=$('#tt');if(tt)tt.textContent=money(t);const r=$('#fr');if(r){const v=parseFloat(r.value);$('#tr').textContent=t>0&&v>=t?'Troco: '+money(v-t):''}return t}
+async function salvarCore(){const f=S.f,its=f.itens.filter(i=>i.qtd>0);
+if(!f.cliente)return alert('Escolha um cliente.');
+if(!its.length)return alert('Adicione pelo menos um produto.');
 if(!f.id&&!(parseInt($('#fp').value)>0))return alert('Informe o prazo de entrega em minutos.');
-const rua=$('#fRua').value.trim(),num=$('#fNum').value.trim(),comp=$('#fComp').value.trim(),bai=$('#fBai').value.trim(),cid=$('#fCid').value.trim(),cep=$('#fCep').value.trim();
-const cidCep=[cid,cep&&'CEP '+cep].filter(Boolean).join(' - ');
-const endereco=[rua+(num?', '+num:''),comp,bai,cidCep].filter(Boolean).join(', ');
-const total=tot(),m=$('#fm').value,rf=$('#fr'),rec=m==='Dinheiro'&&rf&&rf.value!==''?+rf.value:null;
-const row={cliente_id:$('#fc').value||null,cliente_nome:nome,telefone:$('#ft').value,endereco,observacao_cliente:$('#fo').value,observacao:$('#fb').value,metodo_pagamento:m,valor_recebido:rec,troco:rec!=null&&rec>=total?+(rec-total).toFixed(2):null,precisa_maquininha:m==='Débito'||m==='Crédito',total,frete_por_galao:f.frete||0,qtd_galoes:f.galoes||0,lat:f.geo?f.geo.lat:null,lng:f.geo?f.geo.lng:null};
+const cli=f.cliente;const total=tot(),m=$('#fm').value,rf=$('#fr'),rec=m==='Dinheiro'&&rf&&rf.value!==''?+rf.value:null;
+const row={cliente_id:cli.id||null,cliente_nome:cli.nome,telefone:cli.telefone||null,endereco:cli.endereco||null,observacao_cliente:cli.observacao_cliente||null,observacao:$('#fb').value,metodo_pagamento:m,valor_recebido:rec,troco:rec!=null&&rec>=total?+(rec-total).toFixed(2):null,precisa_maquininha:m==='Débito'||m==='Crédito',total,frete_por_galao:f.frete||0,qtd_galoes:f.galoes||0,lat:cli.lat??null,lng:cli.lng??null};
 let id=f.id,e;
 if(id){({error:e}=await sb.from('comandas').update(row).eq('id',id));if(!e)await sb.from('comanda_itens').delete().eq('comanda_id',id)}
 else{row.prazo_em=new Date(Date.now()+$('#fp').value*60000).toISOString();const r=await sb.from('comandas').insert(row).select('id').single();e=r.error;id=r.data?.id}
@@ -198,8 +212,10 @@ const {error:e2}=await sb.from('comanda_itens').insert(its.map(i=>({comanda_id:i
 if(e2)return alert('Erro: '+e2.message);
 if(!f.id)localStorage.removeItem('draft_cform_novo');
 await load();go('detail',id)}
+async function salvar(){if(S.salvando)return;S.salvando=true;const b=$('#btnSalvar');if(b){b.disabled=true;b.textContent='Salvando…'}
+try{await salvarCore()}finally{S.salvando=false;const b2=$('#btnSalvar');if(b2){b2.disabled=false;b2.textContent='Salvar comanda'}}}
 
-/* ---------- PRÓXIMA ENTREGA ---------- */
+/* ---------- JANELA DE PEDIDO PENDENTE (aparece depois de marcar Entregue) ---------- */
 const esperar=ms=>new Promise(r=>setTimeout(r,ms));
 function pegaPos(){return new Promise(res=>{if(!navigator.geolocation)return res(null);navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude}),()=>res(null),{enableHighAccuracy:false,timeout:8000,maximumAge:60000})})}
 function distKm(a,b){const R=6371,t=x=>x*Math.PI/180;const dLat=t(b.lat-a.lat),dLng=t(b.lng-a.lng);const h=Math.sin(dLat/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dLng/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
@@ -212,42 +228,28 @@ async function geocodeC(c){if(S.nf.has(c.id)||!c.endereco)return;
 for(const q of variantes(c.endereco)){
   await esperar(1100);
   try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(q),{headers:{'Accept-Language':'pt-BR'}});const j=await r.json();
-    if(j[0]){c.lat=+j[0].lat;c.lng=+j[0].lon;sb.from('comandas').update({lat:c.lat,lng:c.lng}).eq('id',c.id);return}
+    if(j[0]){c.lat=+j[0].lat;c.lng=+j[0].lon;await sb.from('comandas').update({lat:c.lat,lng:c.lng}).eq('id',c.id);return}
   }catch(e){}
 }
 S.nf.add(c.id)}
-async function atualizaSug(){const box=$('#sug');if(!box)return;
-const pend=S.comandas.filter(c=>c.status==='Pendente');
-if(!pend.length){box.innerHTML='<div class=card><span class=mut>Nenhuma entrega pendente hoje.</span></div>';return}
-const pos=await pegaPos();if(!$('#sug'))return;
-if(!pos){box.innerHTML='<div class=card><span class=mut>Ative a localização do celular para ver a entrega mais próxima.</span></div>';return}
-box.innerHTML='<div class=card><span class=mut>Procurando a entrega mais próxima…</span></div>';
-for(const c of pend){if(c.lat==null&&c.endereco)await geocodeC(c)}
-if(!$('#sug'))return;
-const ign=S.ign;const com=pend.filter(c=>c.lat!=null&&!ign.has(c.id)).map(c=>({c,d:distKm(pos,{lat:c.lat,lng:c.lng})})).sort((a,b)=>a.d-b.d);
-if(!com.length){box.innerHTML=pend.every(c=>ign.has(c.id))?'':'<div class=card><span class=mut>Não encontrei o endereço das entregas pendentes. Confira os endereços.</span></div>';return}
-const {c,d}=com[0];
-box.innerHTML=`<div class=card><div class=mut>Entrega mais próxima</div><div class=row><b>${esc(c.cliente_nome)}</b><span>${d.toFixed(1).replace('.',',')} km</span></div><div class=mut>${esc(c.endereco||'')}</div><div class=row><button class="btn s" onclick="naoIr('${c.id}')">Não ir</button><button class=btn onclick="iniciar('${c.id}')">Ir</button></div></div>`}
-function naoIr(id){S.ign.add(id);atualizaSug()}
-async function iniciar(id){const c=S.comandas.find(x=>x.id===id);
+async function checaPendentes(){const pend=S.comandas.filter(c=>c.status==='Pendente');if(!pend.length)return;
+const ov=$('#ovi');const ord=pend.slice().sort((a,b)=>new Date(a.prazo_em||0)-new Date(b.prazo_em||0));
+const mostra=(c,linha)=>{S.sugId=c.id;ov.innerHTML=`<div class=box><b>📦 Tem pedido pendente</b><div style="margin:8px 0 12px"><b>${esc(c.cliente_nome)}</b> <span class=mut>· Comanda #${c.numero}</span><div class=mut>${esc(c.endereco||'')}</div><div class=mut>${esc(linha)}</div></div><div class=row><button class="btn s" onclick="fechaIni()">Não ir</button><button class=btn onclick="irEntrega()">Ir</button></div></div>`;ov.style.display='flex'};
+if(pend.length===1)return mostra(ord[0],'Único pedido pendente');
+mostra(ord[0],'Procurando o mais próximo…');
+const pos=await pegaPos();if(ov.style.display!=='flex')return;
+if(!pos)return mostra(ord[0],'Sem localização: escolhido pelo menor prazo');
+for(const c of pend){if(c.lat==null&&c.endereco)await geocodeC(c);if(ov.style.display!=='flex')return}
+const com=pend.filter(c=>c.lat!=null).map(c=>({c,d:distKm(pos,{lat:c.lat,lng:c.lng})})).sort((a,b)=>a.d-b.d);
+if(ov.style.display!=='flex')return;
+if(com.length)return mostra(com[0].c,'A '+com[0].d.toFixed(1).replace('.',',')+' km de você');
+mostra(ord[0],'Sem endereço localizado: escolhido pelo menor prazo')}
+async function irEntrega(){const id=S.sugId;const c=S.comandas.find(x=>x.id===id);if(!c)return fechaIni();
 const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
-if(c)c.status='Em entrega';
-await load();
-const dest=(c&&c.lat!=null)?(c.lat+','+c.lng):encodeURIComponent((c&&c.endereco)||'');
+c.status='Em entrega';fechaIni();await load();go('detail',id,'home');
+const dest=c.lat!=null?(c.lat+','+c.lng):encodeURIComponent(c.endereco||'');
 location.href='intent://navigate?q='+dest+'#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end'}
-
-/* ---------- BUSCA DE ENDEREÇO (preenche campos; guarda a localização sem mostrar) ---------- */
-let _bt=null;
-function buscaEnd(){clearTimeout(_bt);const q=($('#bq').value||'').trim();if(q.length<4){$('#bl').innerHTML='';return}
-_bt=setTimeout(async()=>{$('#bl').innerHTML='<p class=mut>Buscando…</p>';
-try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='+encodeURIComponent(q),{headers:{'Accept-Language':'pt-BR'}});const j=await r.json();
-S.busca=j.map(x=>{const a=x.address||{};return {rua:a.road||'',numero:a.house_number||'',bairro:a.suburb||a.neighbourhood||a.quarter||'',cidade:a.city||a.town||a.village||a.municipality||'',cep:a.postcode||'',lat:+x.lat,lng:+x.lon,label:x.display_name}});
-$('#bl').innerHTML=S.busca.map((e,i)=>`<div class=card onclick="escolheEnd(${i})"><b>${esc(e.rua||e.label)}${e.numero?', '+esc(e.numero):''}</b><div class=mut>${esc([e.bairro,e.cidade,e.cep].filter(Boolean).join(' · '))}</div></div>`).join('')||'<p class=mut>Nenhum endereço encontrado. Tente outro nome de rua.</p>'}
-catch(err){$('#bl').innerHTML='<p class=mut>Sem conexão para buscar o endereço.</p>'}},600)}
-function escolheEnd(i){const e=S.busca[i];if(!e)return;
-if($('#c_rua')){for(const k of ['rua','bairro','cidade','cep']){const el=$('#c_'+k);if(el)el.value=e[k]||''}const n=$('#c_numero');if(n&&!n.value)n.value=e.numero||''}
-else if($('#fRua')){$('#fRua').value=e.rua||'';$('#fBai').value=e.bairro||'';$('#fCid').value=e.cidade||'';$('#fCep').value=e.cep||'';const n=$('#fNum');if(n&&!n.value)n.value=e.numero||'';S.f.geo=isNaN(e.lat)?null:{lat:e.lat,lng:e.lng}}
-$('#bl').innerHTML='';$('#bq').value='';salvaRascunho()}
+function fechaIni(){const ov=$('#ovi');if(ov)ov.style.display='none'}
 
 /* ---------- HISTÓRICO COM CALENDÁRIO ---------- */
 async function historico(){const c=S.cal||(S.cal={y:new Date().getFullYear(),m:new Date().getMonth()});
@@ -273,15 +275,46 @@ const {data,error}=await r;if(error)return alert(error.message);
 S.hist=data||[];
 $('#hl').innerHTML=S.hist.map(c=>`<div class=card onclick="go('detail','${c.id}','historico')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>#${c.numero} · ${fdt(c.criado_em)}</span><span>${money(c.total)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda encontrada.</p>'}
 
-/* ---------- CLIENTES ---------- */
+/* ---------- CLIENTES: lupa, novo cliente e escolha para a comanda ---------- */
 const CF=[['nome','Nome'],['telefone','Telefone'],['rua','Rua'],['numero','Número'],['bairro','Bairro'],['cidade','Cidade'],['cep','CEP'],['predio','Prédio'],['bloco','Bloco'],['apartamento','Apartamento'],['complemento','Complemento'],['referencia','Referência'],['observacao','Observação permanente']];
-function clientes(){app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Clientes</h1><span></span></div><input placeholder="🔍 Pesquisar cliente pelo nome" oninput="S.q=this.value;lista()" value="${esc(S.q)}"><button class=btn onclick="go('cliform')">+ Novo cliente</button><div id=l></div></div>`;lista()}
-function lista(){const q=S.q.toLowerCase();$('#l').innerHTML=S.clientes.filter(c=>(c.nome||'').toLowerCase().includes(q)).map(c=>`<div class=card onclick="go('cliform','${c.id}')"><b>${esc(c.nome)}</b><div class=mut>${esc(c.telefone||'')}</div><div class=mut>${esc(addr(c))}</div></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
-function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};
-app.innerHTML=`<div class=w oninput="salvaRascunho()"><div class=top><button class=ib onclick="go('clientes')">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div><label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div>${CF.map(([k,l])=>`<label>${l}</label><input id=c_${k} value="${esc(c[k])}">`).join('')}<button class=btn onclick="salvarCli()">Salvar cliente</button>${S.id?`<button class="btn d" onclick="delRow('clientes')">Excluir cliente</button>`:''}</div>`;
+function clientes(){const sel=S.selecting;
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="${sel?"go('cform')":"go('home')"}">←</button><h1>${sel?'Escolher cliente':'Clientes'}</h1><span></span></div>
+<input placeholder="🔍 Pesquisar cliente pelo nome" oninput="S.q=this.value;lista()" value="${esc(S.q)}">
+<button class=btn onclick="${sel?'S.voltarSel=true;':''}go('cliform')">+ Novo cliente</button><div id=l></div></div>`;lista()}
+function lista(){const ws=(S.q||'').toLowerCase().split(/\s+/).filter(Boolean);
+$('#l').innerHTML=S.clientes.filter(c=>ws.every(w=>(c.nome||'').toLowerCase().includes(w))).map(c=>`<div class=card onclick="${S.selecting?`escolhe('${c.id}')`:`go('cliform','${c.id}')`}"><b>${esc(c.nome)}</b><div class=mut>${esc(c.telefone||'')}</div><div class=mut>${esc(addr(c))}</div></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
+function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};S.cgeo=null;
+app.innerHTML=`<div class=w oninput="salvaRascunho()"><div class=top><button class=ib onclick="goCli()">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div>
+<label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div>
+${CF.map(([k,l])=>`<label>${l}</label><input id=c_${k} value="${esc(c[k])}">`).join('')}
+<button class=btn id=btnCli onclick="salvarCli()">Salvar cliente</button>${S.id?`<button class="btn d" onclick="delRow('clientes')">Excluir cliente</button>`:''}</div>`;
 if(!S.id){const d=localStorage.getItem('draft_cli_novo');if(d)applyCampos(JSON.parse(d))}}
-async function salvarCli(){const r={};CF.forEach(([k])=>r[k]=$('#c_'+k).value.trim()||null);if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('clientes').update(r).eq('id',S.id):await sb.from('clientes').insert(r);if(error)return alert(error.message);if(!S.id)localStorage.removeItem('draft_cli_novo');S.id=null;await load();go('clientes')}
+function goCli(){S.selecting=!!S.voltarSel;S.voltarSel=false;go('clientes')}
+async function salvarCli(){const r={};CF.forEach(([k])=>r[k]=$('#c_'+k).value.trim()||null);
+if(!r.nome)return alert('Informe o nome.');
+const c=S.clientes.find(x=>x.id===S.id)||{};
+const chaves=['rua','numero','bairro','cidade','cep'];
+const endNovo=chaves.map(k=>r[k]||'').join('|'),endOld=chaves.map(k=>c[k]||'').join('|');
+r.lat=S.cgeo?S.cgeo.lat:(endNovo===endOld?(c.lat??null):null);
+r.lng=S.cgeo?S.cgeo.lng:(endNovo===endOld?(c.lng??null):null);
+const {error}=S.id?await sb.from('clientes').update(r).eq('id',S.id):await sb.from('clientes').insert(r);
+if(error)return alert(error.message);
+if(!S.id)localStorage.removeItem('draft_cli_novo');
+S.id=null;await load();goCli()}
 async function delRow(t){if(!confirm('Excluir?'))return;const {error}=await sb.from(t).delete().eq('id',S.id);if(error)return alert(error.message);S.id=null;await load();go(t)}
+function escolheEnd(i){const e=S.busca[i];if(!e)return;
+const set=(k,v)=>{const el=$('#c_'+k);if(el)el.value=v||''};
+set('rua',e.rua);set('bairro',e.bairro);set('cidade',e.cidade);set('cep',e.cep);
+const n=$('#c_numero');if(n&&!n.value)n.value=e.numero||'';
+S.cgeo=isNaN(e.lat)?null:{lat:e.lat,lng:e.lng};
+$('#bl').innerHTML='';$('#bq').value='';salvaRascunho()}
+let _bt=null;
+function buscaEnd(){clearTimeout(_bt);const q=($('#bq').value||'').trim();if(q.length<4){$('#bl').innerHTML='';return}
+_bt=setTimeout(async()=>{$('#bl').innerHTML='<p class=mut>Buscando…</p>';
+try{const r=await fetch('https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='+encodeURIComponent(q),{headers:{'Accept-Language':'pt-BR'}});const j=await r.json();
+S.busca=j.map(x=>{const a=x.address||{};return {rua:a.road||'',numero:a.house_number||'',bairro:a.suburb||a.neighbourhood||a.quarter||'',cidade:a.city||a.town||a.village||a.municipality||'',cep:a.postcode||'',lat:+x.lat,lng:+x.lon,label:x.display_name}});
+$('#bl').innerHTML=S.busca.map((e,i)=>`<div class=card onclick="escolheEnd(${i})"><b>${esc(e.rua||e.label)}${e.numero?', '+esc(e.numero):''}</b><div class=mut>${esc([e.bairro,e.cidade,e.cep].filter(Boolean).join(' · '))}</div></div>`).join('')||'<p class=mut>Nenhum endereço encontrado. Tente outro nome de rua.</p>'}
+catch(err){$('#bl').innerHTML='<p class=mut>Sem conexão para buscar o endereço.</p>'}},600)}
 
 /* ---------- CATÁLOGO: só nome, categoria e preço ---------- */
 function produtos(){const bloco=(cat,titulo)=>{const l=S.produtos.filter(p=>(p.categoria||'Outros')===cat);return l.length?`<div class=cab2>${titulo}</div>`+l.map(p=>`<div class=card onclick="go('prodform','${p.id}')"><div class=row><b>${esc(p.nome)}</b><span>${money(p.preco)}</span></div></div>`).join(''):''};
@@ -298,6 +331,10 @@ if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('pro
 
 /* ---------- CONFIGURAÇÕES ---------- */
 function config(){const t=localStorage.getItem('tema')||'auto';app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Configurações</h1><span></span></div><label>Aparência</label><select onchange="localStorage.setItem('tema',this.value);tema()">${[['auto','Automático'],['light','Claro'],['dark','Escuro']].map(([v,l])=>`<option value=${v} ${v===t?'selected':''}>${l}</option>`).join('')}</select><p class=mut>Conectado como ${esc(S.user.email)}</p><button class="btn s" onclick="sb.auth.signOut()">Sair</button></div>`}
+
+/* evita duplo clique: a ação só roda uma vez por vez */
+function unico(fn){let busy=false;return async function(...a){if(busy)return;busy=true;try{return await fn.apply(this,a)}finally{busy=false}}}
+salvarCli=unico(salvarCli);salvarProd=unico(salvarProd);delRow=unico(delRow);irEntrega=unico(irEntrega);
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script></body></html>
