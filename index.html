@@ -133,7 +133,7 @@ app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go(S.back||
 ${c.frete_por_galao>0?`<hr><div class=row><span class=mut>Frete: ${money(c.frete_por_galao)} × ${c.qtd_galoes} galão(ões)</span><span>${money(c.frete_por_galao*c.qtd_galoes)}</span></div>`:''}
 <hr><div class=row><b>Total</b><b>${money(c.total)}</b></div>
 <hr><div>${ICO[c.metodo_pagamento]||'💰'} ${esc(c.metodo_pagamento||'-')}${din&&c.valor_recebido!=null?` · recebido ${money(c.valor_recebido)} · troco ${money(c.troco)}`:''}${c.precisa_maquininha?'<div class=mut>⚠️ Levar maquininha</div>':''}</div></div>
-<div class=card><div>📍 ${esc(c.endereco||'-')}</div>${c.endereco?`<div class=row style="margin:8px 0 2px"><a class=btn href="intent://?q=${encodeURIComponent(c.endereco)}&navigate=yes#Intent;scheme=waze;package=com.waze;end">🧭 Waze</a><a class="btn s" href="intent://navigate?q=${encodeURIComponent(c.endereco)}#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end">🧭 Google Maps</a></div>`:''}<div class=mut style="margin-top:8px">📞 ${c.telefone?`<a href="tel:${esc(c.telefone)}">${esc(c.telefone)}</a>`:'-'}</div>${c.observacao_cliente?`<div class=mut>Obs. do cliente: ${esc(c.observacao_cliente)}</div>`:''}</div>
+<div class=card><div>📍 ${esc(c.endereco||'-')}</div>${c.endereco?`<div class=row style="margin:8px 0 2px"><a class=btn href="intent://?q=${encodeURIComponent(c.endereco)}&navigate=yes#Intent;scheme=waze;package=com.waze;end">🧭 Waze</a></div>`:''}<div class=mut style="margin-top:8px">📞 ${c.telefone?`<a href="tel:${esc(c.telefone)}">${esc(c.telefone)}</a>`:'-'}</div>${c.observacao_cliente?`<div class=mut>Obs. do cliente: ${esc(c.observacao_cliente)}</div>`:''}</div>
 ${c.observacao?`<div class="card obs"><b>📝 Observação da comanda</b><div style="margin-top:4px">${esc(c.observacao)}</div></div>`:''}
 <div class=row>${['Pendente','Em entrega','Entregue'].map(s=>`<button class="btn ${c.status===s?'':'s'}" onclick="setSt('${c.id}','${s}')">${s}</button>`).join('')}</div>
 <button class="btn s" onclick="editar('${c.id}')">✏️ Editar comanda</button><button class="btn d" onclick="delC('${c.id}')">Excluir comanda</button></div>`}
@@ -247,8 +247,8 @@ mostra(ord[0],'Sem endereço localizado: escolhido pelo menor prazo')}
 async function irEntrega(){const id=S.sugId;const c=S.comandas.find(x=>x.id===id);if(!c)return fechaIni();
 const {error}=await sb.from('comandas').update({status:'Em entrega'}).eq('id',id);if(error)return alert(error.message);
 c.status='Em entrega';fechaIni();await load();go('detail',id,'home');
-const dest=c.lat!=null?(c.lat+','+c.lng):encodeURIComponent(c.endereco||'');
-location.href='intent://navigate?q='+dest+'#Intent;scheme=google.navigation;package=com.google.android.apps.maps;end'}
+const dest=c.lat!=null?('ll='+c.lat+','+c.lng):('q='+encodeURIComponent(c.endereco||''));
+location.href='intent://?'+dest+'&navigate=yes#Intent;scheme=waze;package=com.waze;end'}
 function fechaIni(){const ov=$('#ovi');if(ov)ov.style.display='none'}
 
 /* ---------- HISTÓRICO COM CALENDÁRIO ---------- */
@@ -297,7 +297,9 @@ const chaves=['rua','numero','bairro','cidade','cep'];
 const endNovo=chaves.map(k=>r[k]||'').join('|'),endOld=chaves.map(k=>c[k]||'').join('|');
 r.lat=S.cgeo?S.cgeo.lat:(endNovo===endOld?(c.lat??null):null);
 r.lng=S.cgeo?S.cgeo.lng:(endNovo===endOld?(c.lng??null):null);
-const {error}=S.id?await sb.from('clientes').update(r).eq('id',S.id):await sb.from('clientes').insert(r);
+const gravaCli=()=>S.id?sb.from('clientes').update(r).eq('id',S.id):sb.from('clientes').insert(r);
+let {error}=await gravaCli();
+if(error&&/'(lat|lng)' column/.test(error.message)){delete r.lat;delete r.lng;({error}=await gravaCli())}
 if(error)return alert(error.message);
 if(!S.id)localStorage.removeItem('draft_cli_novo');
 S.id=null;await load();goCli()}
