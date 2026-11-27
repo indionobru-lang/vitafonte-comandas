@@ -55,7 +55,7 @@ const mins=(a,b)=>Math.round((new Date(b)-new Date(a))/60000);
 const SC={'Pendente':'p','Em entrega':'e','Entregue':'g'};
 const ICO={Dinheiro:'💵',Pix:'💠',Débito:'💳',Crédito:'💳'};
 const S={v:'home',clientes:[],produtos:[],comandas:[],hist:[],mes:[],q:'',menu:false,nf:new Set(),selecting:false,voltarSel:false,sig:'',salvando:false,stBusy:false};
-const FORMS=['cform','cliform','prodform','historico'];
+const FORMS=['cform','cliform','prodform','historico','inventario'];
 function tema(){const t=localStorage.getItem('tema')||'auto';document.documentElement.dataset.t=(t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme:dark)').matches))?'dark':'light'}
 tema();matchMedia('(prefers-color-scheme:dark)').addEventListener('change',tema);
 const addr=c=>[c.rua&&c.rua+(c.numero?', '+c.numero:''),c.bairro,c.cidade,c.cep&&'CEP '+c.cep,c.predio&&'Prédio '+c.predio,c.bloco&&'Bloco '+c.bloco,c.apartamento&&'Apto '+c.apartamento,c.complemento,c.referencia&&'Ref.: '+c.referencia].filter(Boolean).join(' · ');
@@ -83,7 +83,7 @@ function go(v,id,back,pop){
   if(!pop&&wasHome&&v!=='home')history.pushState({vf:1},'');
   salvaTela();render()}
 addEventListener('popstate',()=>{if(S.v!=='home'&&S.user)go('home',null,null,true)});
-function render(){if(!S.user)return login();({home,detail,cform,clientes,cliform,produtos,prodform,config,historico})[S.v]()}
+function render(){if(!S.user)return login();({home,detail,cform,clientes,cliform,produtos,prodform,config,historico,inventario})[S.v]()}
 async function load(){
   const t=new Date();t.setHours(0,0,0,0);
   const [c,p,o]=await Promise.all([
@@ -119,7 +119,7 @@ async function entrar(){const {error}=await sb.auth.signInWithPassword({email:$(
 function home(){const h=new Date().getHours(),g=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
 const ord=S.comandas.slice().sort((a,b)=>{const ea=a.status==='Entregue'?1:0,eb=b.status==='Entregue'?1:0;if(ea!==eb)return ea-eb;return new Date(a.prazo_em||0)-new Date(b.prazo_em||0)});
 app.innerHTML=`<div class=w><div class=top><div><h1>${g}!</h1><div class=mut>Comandas de hoje</div></div><button class=ib onclick="S.menu=!S.menu;render()">⋮</button></div>
-${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo</a><a onclick="go('config')">⚙️ Configurações</a></div>`:''}
+${S.menu?`<div class=menu><a onclick="go('historico')">🧾 Histórico e calendário</a><a onclick="go('clientes')">👥 Clientes</a><a onclick="go('produtos')">📦 Catálogo</a><a onclick="go('inventario')">📋 Inventário</a><a onclick="go('config')">⚙️ Configurações</a></div>`:''}
 ${ord.map(c=>`<div class=card onclick="go('detail','${c.id}')"><div class=row><b>${esc(c.cliente_nome)}</b><span class="tag ${SC[c.status]}">${c.status}</span></div><div class="row mut"><span>Comanda #${c.numero}</span><span data-c="${c.id}">${cnt(c)}</span></div></div>`).join('')||'<p class=mut>Nenhuma comanda hoje.</p>'}
 <button class=btn onclick="novo()">+ Nova comanda</button></div>`}
 
@@ -145,7 +145,7 @@ try{const agora=s==='Entregue'?new Date().toISOString():null;
   else await load();
 }finally{S.stBusy=false}}
 function voltaInicio(){if(history.state&&history.state.vf)history.replaceState(null,'');S.v='home';S.id=null;S.back=null;S.menu=false;S.selecting=false;scrollTo(0,0);salvaTela();render()}
-async function delC(id){if(!confirm('Excluir esta comanda?'))return;const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);go('home')}
+async function delC(id){if(!confirm('Excluir esta comanda?'))return;const c=[...S.comandas,...S.hist,...S.mes].find(x=>x.id===id),dl={};(c?.comanda_itens||[]).forEach(i=>{if(i.produto_id)dl[i.produto_id]=(dl[i.produto_id]||0)+i.quantidade});const {error}=await sb.from('comandas').delete().eq('id',id);if(error)return alert(error.message);await ajustaEstoque(dl);go('home')}
 
 /* ---------- NOVA / EDITAR COMANDA ---------- */
 const itemOf=p=>({produto_id:p.id,nome:p.nome,cat:p.categoria||'Outros',preco:+p.preco,qtd:0});
@@ -159,7 +159,7 @@ const base=S.produtos.map(itemOf);
 // preços já gravados na comanda continuam congelados
 const itens=base.map(b=>{const o=old.find(i=>i.produto_id===b.produto_id);return o?{...b,qtd:o.quantidade,preco:+o.preco_unitario}:b});
 old.filter(o=>!base.some(b=>b.produto_id===o.produto_id)).forEach(o=>itens.push({produto_id:o.produto_id,nome:o.produto_nome,cat:'Outros',preco:+o.preco_unitario,qtd:o.quantidade}));
-S.f={id,cliente:{id:c.cliente_id,nome:c.cliente_nome,telefone:c.telefone||'',endereco:c.endereco||'',observacao_cliente:c.observacao_cliente||null,lat:c.lat??null,lng:c.lng??null},obs:c.observacao,metodo:c.metodo_pagamento||'Dinheiro',rec:c.valor_recebido,frete:+(c.frete_por_galao||0),itens};
+S.f={id,cliente:{id:c.cliente_id,nome:c.cliente_nome,telefone:c.telefone||'',endereco:c.endereco||'',observacao_cliente:c.observacao_cliente||null,lat:c.lat??null,lng:c.lng??null},obs:c.observacao,metodo:c.metodo_pagamento||'Dinheiro',rec:c.valor_recebido,frete:+(c.frete_por_galao||0),itens,orig:Object.fromEntries(old.filter(o=>o.produto_id).map(o=>[o.produto_id,o.quantidade]))};
 go('cform')}
 function itemRow(i,k){return `<div class=row><div style="flex:1">${esc(i.nome)}<div class=mut>${money(i.preco)} cada</div></div><div class=q><button onclick="st(${k},-1)">−</button><b id=q${k}>${i.qtd}</b><button onclick="st(${k},1)">+</button></div></div>`}
 function togSec(id){const b=$('#b_'+id),abre=b.style.display==='none';b.style.display=abre?'block':'none';const h=$('#h_'+id);h.textContent=(abre?'▾ ':'▸ ')+h.textContent.slice(2)}
@@ -210,7 +210,10 @@ else{row.prazo_em=new Date(Date.now()+$('#fp').value*60000).toISOString();const 
 if(e)return alert('Erro: '+e.message);
 const {error:e2}=await sb.from('comanda_itens').insert(its.map(i=>({comanda_id:id,produto_id:i.produto_id,produto_nome:i.nome,quantidade:i.qtd,preco_unitario:i.preco})));
 if(e2)return alert('Erro: '+e2.message);
-if(!f.id)localStorage.removeItem('draft_cform_novo');
+const dl={};its.forEach(i=>{if(i.produto_id)dl[i.produto_id]=(dl[i.produto_id]||0)-i.qtd});
+if(f.id)Object.entries(f.orig||{}).forEach(([k,v])=>dl[k]=(dl[k]||0)+v);
+await ajustaEstoque(dl);
+if(!f.id){localStorage.removeItem('draft_cform_novo');S.f=null}
 await load();go('detail',id)}
 async function salvar(){if(S.salvando)return;S.salvando=true;const b=$('#btnSalvar');if(b){b.disabled=true;b.textContent='Salvando…'}
 try{await salvarCore()}finally{S.salvando=false;const b2=$('#btnSalvar');if(b2){b2.disabled=false;b2.textContent='Salvar comanda'}}}
@@ -282,7 +285,7 @@ app.innerHTML=`<div class=w><div class=top><button class=ib onclick="${sel?"go('
 <input placeholder="🔍 Pesquisar cliente pelo nome" oninput="S.q=this.value;lista()" value="${esc(S.q)}">
 <button class=btn onclick="${sel?'S.voltarSel=true;':''}go('cliform')">+ Novo cliente</button><div id=l></div></div>`;lista()}
 function lista(){const ws=(S.q||'').toLowerCase().split(/\s+/).filter(Boolean);
-$('#l').innerHTML=S.clientes.filter(c=>ws.every(w=>(c.nome||'').toLowerCase().includes(w))).map(c=>`<div class=card onclick="${S.selecting?`escolhe('${c.id}')`:`go('cliform','${c.id}')`}"><b>${esc(c.nome)}</b><div class=mut>${esc(c.telefone||'')}</div><div class=mut>${esc(addr(c))}</div></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
+$('#l').innerHTML=S.clientes.filter(c=>ws.every(w=>(c.nome||'').toLowerCase().includes(w))).map(c=>`<div class=card onclick="${S.selecting?`escolhe('${c.id}')`:`go('cliform','${c.id}')`}"><b>${esc(c.nome)}</b></div>`).join('')||'<p class=mut>Nenhum cliente encontrado.</p>'}
 function cliform(){const c=S.clientes.find(x=>x.id===S.id)||{};S.cgeo=null;
 app.innerHTML=`<div class=w oninput="salvaRascunho()"><div class=top><button class=ib onclick="goCli()">←</button><h1>${S.id?'Editar':'Novo'} cliente</h1><span></span></div>
 <label>Buscar endereço</label><input id=bq placeholder="Digite a rua e o bairro" oninput="buscaEnd()"><div id=bl></div>
@@ -331,12 +334,31 @@ async function salvarProd(){const cat=$('#p_c').value;if(!cat)return alert('Esco
 const r={nome:$('#p_n').value.trim(),categoria:cat,preco:parseFloat($('#p_p').value)||0};
 if(!r.nome)return alert('Informe o nome.');const {error}=S.id?await sb.from('produtos').update(r).eq('id',S.id):await sb.from('produtos').insert(r);if(error)return alert(error.message);S.id=null;await load();go('produtos')}
 
+/* ---------- INVENTÁRIO (controle extra: comandas do app descontam sozinhas) ---------- */
+async function ajustaEstoque(dl){try{const ids=Object.keys(dl).filter(k=>dl[k]);if(!ids.length)return;
+const {data}=await sb.from('produtos').select('id,estoque').in('id',ids);
+for(const p of data||[]){if(p.estoque==null)continue;await sb.from('produtos').update({estoque:Math.max(0,p.estoque+dl[p.id])}).eq('id',p.id)}}catch(e){}}
+function inventario(){const sem=S.produtos.length&&!('estoque' in S.produtos[0]);
+const bloco=(cat,titulo)=>{const l=S.produtos.filter(p=>(p.categoria||'Outros')===cat);return l.length?`<div class=cab2>${titulo}</div>`+l.map(p=>{const n=p.estoque;return `<div class=card><div class=row><b>${esc(p.nome)}</b><b style="font-size:22px;${n!=null&&n<=0?'color:var(--bad)':''}">${n==null?'—':n}</b></div><div class=row style="margin-top:10px"><input id="iq_${p.id}" type=number inputmode=numeric min=0 placeholder="Qtd" style="width:84px;flex:none;margin:0"><button class="btn s" onclick="invOp('${p.id}','-')">− Retirar</button><button class="btn s" onclick="invOp('${p.id}','+')">+ Repor</button><button class="btn s" onclick="invOp('${p.id}','=')">= Definir</button></div></div>`}).join(''):''};
+app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Inventário</h1><span></span></div>
+<p class=mut>Defina a quantidade de cada produto. Cada comanda lançada no app desconta sozinha. Para vendas feitas fora do app, digite a quantidade e toque em Retirar.</p>
+${sem?'<div class=card style="border-color:var(--bad)">Falta criar a coluna estoque no Supabase. Rode o SQL e atualize o app.</div>':''}
+${bloco('Galão','Galões')}${bloco('Outros','Outros')}${S.produtos.length?'':'<p class=mut>Cadastre produtos no Catálogo primeiro.</p>'}</div>`}
+async function invOp(id,op){const p=S.produtos.find(x=>x.id===id);if(!p)return;
+if(!('estoque' in p))return alert('Crie a coluna estoque no Supabase (SQL) e atualize o app.');
+const v=parseInt($('#iq_'+id).value);
+if(op==='='&&!(v>=0))return alert('Digite a quantidade para definir.');
+if(p.estoque==null&&op==='-')return alert('Defina a quantidade inicial primeiro.');
+const q=v>0?v:1,at=p.estoque||0,n=op==='='?v:op==='+'?at+q:Math.max(0,at-q);
+const {error}=await sb.from('produtos').update({estoque:n}).eq('id',id);if(error)return alert(error.message);
+p.estoque=n;inventario()}
+
 /* ---------- CONFIGURAÇÕES ---------- */
 function config(){const t=localStorage.getItem('tema')||'auto';app.innerHTML=`<div class=w><div class=top><button class=ib onclick="go('home')">←</button><h1>Configurações</h1><span></span></div><label>Aparência</label><select onchange="localStorage.setItem('tema',this.value);tema()">${[['auto','Automático'],['light','Claro'],['dark','Escuro']].map(([v,l])=>`<option value=${v} ${v===t?'selected':''}>${l}</option>`).join('')}</select><p class=mut>Conectado como ${esc(S.user.email)}</p><button class="btn s" onclick="sb.auth.signOut()">Sair</button></div>`}
 
 /* evita duplo clique: a ação só roda uma vez por vez */
 function unico(fn){let busy=false;return async function(...a){if(busy)return;busy=true;try{return await fn.apply(this,a)}finally{busy=false}}}
-salvarCli=unico(salvarCli);salvarProd=unico(salvarProd);delRow=unico(delRow);irEntrega=unico(irEntrega);
+salvarCli=unico(salvarCli);salvarProd=unico(salvarProd);delRow=unico(delRow);irEntrega=unico(irEntrega);invOp=unico(invOp);
 
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js');
 </script></body></html>
